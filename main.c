@@ -21,6 +21,7 @@
 
 #include <libubox/blobmsg_json.h>
 #include <libubus.h>
+#include <signal.h>
 
 #include "session.h"
 #include "file.h"
@@ -41,6 +42,8 @@ int main(int argc, char **argv)
 			break;
 		}
 	}
+
+	signal(SIGPIPE, SIG_IGN);
 
 	argc -= optind;
 	argv += optind;
