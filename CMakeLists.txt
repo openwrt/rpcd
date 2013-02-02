@@ -10,8 +10,8 @@ IF(APPLE)
   LINK_DIRECTORIES(/opt/local/lib)
 ENDIF()
 
-ADD_EXECUTABLE(luci-rpcd main.c session.c file.c)
-TARGET_LINK_LIBRARIES(luci-rpcd ubox ubus)
+ADD_EXECUTABLE(luci-rpcd main.c session.c file.c uci.c)
+TARGET_LINK_LIBRARIES(luci-rpcd ubox ubus uci)
 
 SET(CMAKE_INSTALL_PREFIX /usr)
 
