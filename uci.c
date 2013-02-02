@@ -844,10 +844,38 @@ rpc_uci_commit(struct ubus_context *ctx, struct ubus_object *obj,
 	return rpc_uci_revert_commit(msg, true);
 }
 
+static int
+rpc_uci_configs(struct ubus_context *ctx, struct ubus_object *obj,
+                struct ubus_request_data *req, const char *method,
+                struct blob_attr *msg)
+{
+	char **configs;
+	void *c;
+	int i;
+
+	if (uci_list_configs(cursor, &configs))
+		goto out;
+
+	blob_buf_init(&buf, 0);
+
+	c = blobmsg_open_array(&buf, "configs");
+
+	for (i = 0; configs[i]; i++)
+		blobmsg_add_string(&buf, NULL, configs[i]);
+
+	blobmsg_close_array(&buf, c);
+
+	ubus_send_reply(ctx, req, buf.head);
+
+out:
+	return rpc_uci_status();
+}
+
 
 int rpc_uci_api_init(struct ubus_context *ctx)
 {
 	static const struct ubus_method uci_methods[] = {
+		{ .name = "configs", .handler = rpc_uci_configs },
 		UBUS_METHOD("get",     rpc_uci_get,     rpc_uci_get_policy),
 		UBUS_METHOD("add",     rpc_uci_add,     rpc_uci_add_policy),
 		UBUS_METHOD("set",     rpc_uci_set,     rpc_uci_set_policy),
