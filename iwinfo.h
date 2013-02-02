@@ -1,7 +1,6 @@
 /*
  * luci-rpcd - LuCI UBUS RPC server
  *
- *   Copyright (C) 2013 Felix Fietkau <nbd@openwrt.org>
  *   Copyright (C) 2013 Jo-Philipp Wich <jow@openwrt.org>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -17,57 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <unistd.h>
+#ifndef __RPC_IWINFO_H
+#define __RPC_IWINFO_H
 
-#include <libubox/blobmsg_json.h>
 #include <libubus.h>
-#include <signal.h>
+#include <iwinfo.h>
 
-#include "session.h"
-#include "file.h"
-#include "uci.h"
-#include "iwinfo.h"
+int rpc_iwinfo_api_init(struct ubus_context *ctx);
 
-static struct ubus_context *ctx;
-
-int main(int argc, char **argv)
-{
-	const char *ubus_socket = NULL;
-	int ch;
-
-	while ((ch = getopt(argc, argv, "s:")) != -1) {
-		switch (ch) {
-		case 's':
-			ubus_socket = optarg;
-			break;
-		default:
-			break;
-		}
-	}
-
-	signal(SIGPIPE, SIG_IGN);
-
-	argc -= optind;
-	argv += optind;
-
-	uloop_init();
-
-	ctx = ubus_connect(ubus_socket);
-	if (!ctx) {
-		fprintf(stderr, "Failed to connect to ubus\n");
-		return -1;
-	}
-
-	ubus_add_uloop(ctx);
-
-	rpc_session_api_init(ctx);
-	rpc_file_api_init(ctx);
-	rpc_uci_api_init(ctx);
-	rpc_iwinfo_api_init(ctx);
-
-	uloop_run();
-	ubus_free(ctx);
-	uloop_done();
-
-	return 0;
-}
+#endif
