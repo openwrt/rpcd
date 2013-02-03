@@ -21,6 +21,7 @@
 
 #include <libubus.h>
 #include <iwinfo.h>
+#include <iwinfo/utils.h>
 
 int rpc_iwinfo_api_init(struct ubus_context *ctx);
 
