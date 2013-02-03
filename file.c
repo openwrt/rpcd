@@ -45,7 +45,6 @@ enum {
 	RPC_E_CMD,
 	RPC_E_PARM,
 	RPC_E_ENV,
-	RPC_E_MODE,
 	__RPC_E_MAX,
 };
 
@@ -53,7 +52,6 @@ static const struct blobmsg_policy rpc_exec_policy[__RPC_E_MAX] = {
 	[RPC_E_CMD] = { .name = "command", .type = BLOBMSG_TYPE_STRING },
 	[RPC_E_PARM] = { .name = "params",  .type = BLOBMSG_TYPE_ARRAY  },
 	[RPC_E_ENV]  = { .name = "env",     .type = BLOBMSG_TYPE_TABLE  },
-	[RPC_E_MODE] = { .name = "mode",    .type = BLOBMSG_TYPE_STRING },
 };
 
 static const char *d_types[] = {
