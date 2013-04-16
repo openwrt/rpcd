@@ -381,7 +381,7 @@ static void
 rpc_file_exec_opipe_read_cb(struct ustream *s, int bytes)
 {
 	struct rpc_file_exec_context *c =
-		container_of(s, struct rpc_file_exec_context, opipe);
+		container_of(s, struct rpc_file_exec_context, opipe.stream);
 
 	if (ustream_read_buf_full(s))
 		rpc_file_exec_reply(c, UBUS_STATUS_NOT_SUPPORTED);
@@ -391,7 +391,7 @@ static void
 rpc_file_exec_epipe_read_cb(struct ustream *s, int bytes)
 {
 	struct rpc_file_exec_context *c =
-		container_of(s, struct rpc_file_exec_context, epipe);
+		container_of(s, struct rpc_file_exec_context, epipe.stream);
 
 	if (ustream_read_buf_full(s))
 		rpc_file_exec_reply(c, UBUS_STATUS_NOT_SUPPORTED);
@@ -401,7 +401,7 @@ static void
 rpc_file_exec_opipe_state_cb(struct ustream *s)
 {
 	struct rpc_file_exec_context *c =
-		container_of(s, struct rpc_file_exec_context, opipe);
+		container_of(s, struct rpc_file_exec_context, opipe.stream);
 
 	if (c->opipe.stream.eof && c->epipe.stream.eof)
 		rpc_file_exec_reply(c, UBUS_STATUS_OK);
@@ -411,7 +411,7 @@ static void
 rpc_file_exec_epipe_state_cb(struct ustream *s)
 {
 	struct rpc_file_exec_context *c =
-		container_of(s, struct rpc_file_exec_context, epipe);
+		container_of(s, struct rpc_file_exec_context, epipe.stream);
 
 	if (c->opipe.stream.eof && c->epipe.stream.eof)
 		rpc_file_exec_reply(c, UBUS_STATUS_OK);
