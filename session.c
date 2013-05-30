@@ -525,24 +525,22 @@ rpc_handle_get(struct ubus_context *ctx, struct ubus_object *obj,
 	blob_buf_init(&buf, 0);
 	c = blobmsg_open_table(&buf, "values");
 
-	if (!tb[RPC_SG_KEYS]) {
+	if (tb[RPC_SG_KEYS])
+		blobmsg_for_each_attr(attr, tb[RPC_SG_KEYS], rem) {
+			if (blob_id(attr) != BLOBMSG_TYPE_STRING)
+				continue;
+
+			data = avl_find_element(&ses->data, blobmsg_data(attr), data, avl);
+			if (!data)
+				continue;
+
+			blobmsg_add_field(&buf, blobmsg_type(data->attr),
+					  blobmsg_name(data->attr),
+					  blobmsg_data(data->attr),
+					  blobmsg_data_len(data->attr));
+		}
+	else
 		rpc_session_dump_data(ses, &buf);
-		return 0;
-	}
-
-	blobmsg_for_each_attr(attr, tb[RPC_SG_KEYS], rem) {
-		if (blob_id(attr) != BLOBMSG_TYPE_STRING)
-			continue;
-
-		data = avl_find_element(&ses->data, blobmsg_data(attr), data, avl);
-		if (!data)
-			continue;
-
-		blobmsg_add_field(&buf, blobmsg_type(data->attr),
-				  blobmsg_name(data->attr),
-				  blobmsg_data(data->attr),
-				  blobmsg_data_len(data->attr));
-	}
 
 	blobmsg_close_table(&buf, c);
 	ubus_send_reply(ctx, req, buf.head);
