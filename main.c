@@ -27,7 +27,6 @@
 #include "file.h"
 #include "uci.h"
 #include "iwinfo.h"
-#include "system.h"
 
 static struct ubus_context *ctx;
 
@@ -65,7 +64,6 @@ int main(int argc, char **argv)
 	rpc_file_api_init(ctx);
 	rpc_uci_api_init(ctx);
 	rpc_iwinfo_api_init(ctx);
-	rpc_system_api_init(ctx);
 
 	uloop_run();
 	ubus_free(ctx);
