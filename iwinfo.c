@@ -242,6 +242,8 @@ rpc_iwinfo_info(struct ubus_context *ctx, struct ubus_object *obj,
 
 	blob_buf_init(&buf, 0);
 
+	rpc_iwinfo_call_str("phy", iw->phyname);
+
 	rpc_iwinfo_call_str("ssid", iw->ssid);
 	rpc_iwinfo_call_str("bssid", iw->bssid);
 	rpc_iwinfo_call_str("country", iw->country);
