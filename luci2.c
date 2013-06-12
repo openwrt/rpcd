@@ -180,6 +180,73 @@ rpc_luci2_system_dmesg(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+static int
+rpc_luci2_process_list(struct ubus_context *ctx, struct ubus_object *obj,
+                       struct ubus_request_data *req, const char *method,
+                       struct blob_attr *msg)
+{
+	FILE *top;
+	void *c, *d;
+	char line[1024];
+	char *pid, *ppid, *user, *stat, *vsz, *pvsz, *pcpu, *cmd;
+
+	if (!(top = popen("/bin/busybox top -bn1", "r")))
+		return rpc_errno_status();
+
+	blob_buf_init(&buf, 0);
+	c = blobmsg_open_array(&buf, "processes");
+
+	while (fgets(line, sizeof(line) - 1, top))
+	{
+		pid  = strtok(line, " ");
+
+		if (*pid < '0' || *pid > '9')
+			continue;
+
+		ppid = strtok(NULL, " ");
+		user = strtok(NULL, " ");
+		stat = strtok(NULL, " ");
+
+		if (!stat)
+			continue;
+
+		if (!*(stat + 1))
+			*(stat + 1) = ' ';
+
+		if (!*(stat + 2))
+			*(stat + 2) = ' ';
+
+		*(stat + 3) = 0;
+
+		vsz  = strtok(stat + 4, " ");
+		pvsz = strtok(NULL, " ");
+		pcpu = strtok(NULL, " ");
+		cmd  = strtok(NULL, "\n");
+
+		if (!cmd)
+			continue;
+
+		d = blobmsg_open_table(&buf, NULL);
+
+		blobmsg_add_u32(&buf, "pid", atoi(pid));
+		blobmsg_add_u32(&buf, "ppid", atoi(ppid));
+		blobmsg_add_string(&buf, "user", user);
+		blobmsg_add_string(&buf, "stat", stat);
+		blobmsg_add_u32(&buf, "vsize", atoi(vsz) * 1024);
+		blobmsg_add_u32(&buf, "vsize_percent", atoi(pvsz));
+		blobmsg_add_u32(&buf, "cpu_percent", atoi(pcpu));
+		blobmsg_add_string(&buf, "command", cmd);
+
+		blobmsg_close_table(&buf, d);
+	}
+
+	fclose(top);
+	blobmsg_close_array(&buf, c);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
 
 static FILE *
 dnsmasq_leasefile(void)
@@ -704,8 +771,9 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 	int rv = 0;
 
 	static const struct ubus_method luci2_system_methods[] = {
-		UBUS_METHOD_NOARG("syslog", rpc_luci2_system_log),
-		UBUS_METHOD_NOARG("dmesg",  rpc_luci2_system_dmesg),
+		UBUS_METHOD_NOARG("syslog",       rpc_luci2_system_log),
+		UBUS_METHOD_NOARG("dmesg",        rpc_luci2_system_dmesg),
+		UBUS_METHOD_NOARG("process_list", rpc_luci2_process_list)
 	};
 
 	static struct ubus_object_type luci2_system_type =
