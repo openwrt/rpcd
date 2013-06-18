@@ -71,6 +71,25 @@ static const struct blobmsg_policy rpc_uci_set_policy[__RPC_S_MAX] = {
 };
 
 enum {
+	RPC_D_CONFIG,
+	RPC_D_SECTION,
+	RPC_D_TYPE,
+	RPC_D_MATCH,
+	RPC_D_OPTION,
+	RPC_D_OPTIONS,
+	__RPC_D_MAX,
+};
+
+static const struct blobmsg_policy rpc_uci_delete_policy[__RPC_D_MAX] = {
+	[RPC_D_CONFIG]  = { .name = "config",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_D_SECTION] = { .name = "section",  .type = BLOBMSG_TYPE_STRING },
+	[RPC_D_TYPE]    = { .name = "type",     .type = BLOBMSG_TYPE_STRING },
+	[RPC_D_MATCH]   = { .name = "match",    .type = BLOBMSG_TYPE_TABLE  },
+	[RPC_D_OPTION]  = { .name = "option",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_D_OPTIONS] = { .name = "options",  .type = BLOBMSG_TYPE_ARRAY  },
+};
+
+enum {
 	RPC_R_CONFIG,
 	RPC_R_SECTION,
 	RPC_R_OPTION,
@@ -628,6 +647,115 @@ out:
 	return rpc_uci_status();
 }
 
+/*
+ * Delete option or section from uci specified by given blob attribute pointer
+ *  1) if the blob is of type array, delete any option named after each element
+ *  2) if the blob is of type string, delete the option named after its value
+ *  3) if the blob is NULL, delete entire section
+ */
+static void
+rpc_uci_merge_delete(struct blob_attr *opt, struct uci_ptr *ptr)
+{
+	struct blob_attr *cur;
+	int rem;
+
+	if (rpc_uci_lookup(ptr) || !ptr->s)
+		return;
+
+	if (!opt)
+	{
+		ptr->o = NULL;
+		ptr->option = NULL;
+
+		uci_delete(cursor, ptr);
+	}
+	else if (blobmsg_type(opt) == BLOBMSG_TYPE_ARRAY)
+	{
+		blobmsg_for_each_attr(cur, opt, rem)
+		{
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
+				continue;
+
+			ptr->o = NULL;
+			ptr->option = blobmsg_data(cur);
+
+			if (rpc_uci_lookup(ptr) || !ptr->o)
+				continue;
+
+			uci_delete(cursor, ptr);
+		}
+	}
+	else if (blobmsg_type(opt) == BLOBMSG_TYPE_STRING)
+	{
+		ptr->o = NULL;
+		ptr->option = blobmsg_data(opt);
+
+		if (rpc_uci_lookup(ptr) || !ptr->o)
+			return;
+
+		uci_delete(cursor, ptr);
+	}
+}
+
+static int
+rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
+               struct ubus_request_data *req, const char *method,
+               struct blob_attr *msg)
+{
+	struct blob_attr *tb[__RPC_D_MAX];
+	struct uci_package *p = NULL;
+	struct uci_element *e, *tmp;
+	struct uci_ptr ptr = { 0 };
+
+	blobmsg_parse(rpc_uci_delete_policy, __RPC_D_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_D_CONFIG] ||
+		(!tb[RPC_D_SECTION] && !tb[RPC_D_TYPE] && !tb[RPC_D_MATCH]))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	ptr.package = blobmsg_data(tb[RPC_D_CONFIG]);
+	uci_load(cursor, ptr.package, &p);
+
+	if (!p)
+		goto out;
+
+	if (tb[RPC_D_SECTION])
+	{
+		ptr.section = blobmsg_data(tb[RPC_D_SECTION]);
+
+		if (tb[RPC_D_OPTIONS])
+			rpc_uci_merge_delete(tb[RPC_D_OPTIONS], &ptr);
+		else
+			rpc_uci_merge_delete(tb[RPC_D_OPTION], &ptr);
+	}
+	else
+	{
+		uci_foreach_element_safe(&p->sections, tmp, e)
+		{
+			if (!rpc_uci_match_section(uci_to_section(e),
+			                           tb[RPC_D_TYPE], tb[RPC_D_MATCH]))
+				continue;
+
+			ptr.s = NULL;
+			ptr.section = e->name;
+
+			if (tb[RPC_D_OPTIONS])
+				rpc_uci_merge_delete(tb[RPC_D_OPTIONS], &ptr);
+			else
+				rpc_uci_merge_delete(tb[RPC_D_OPTION], &ptr);
+		}
+	}
+
+	uci_save(cursor, p);
+
+out:
+	if (p)
+		uci_unload(cursor, p);
+
+	return rpc_uci_status();
+}
+
 static int
 rpc_uci_rename(struct ubus_context *ctx, struct ubus_object *obj,
                struct ubus_request_data *req, const char *method,
@@ -879,6 +1007,7 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 		UBUS_METHOD("get",     rpc_uci_get,     rpc_uci_get_policy),
 		UBUS_METHOD("add",     rpc_uci_add,     rpc_uci_add_policy),
 		UBUS_METHOD("set",     rpc_uci_set,     rpc_uci_set_policy),
+		UBUS_METHOD("delete",  rpc_uci_delete,  rpc_uci_delete_policy),
 		UBUS_METHOD("rename",  rpc_uci_rename,  rpc_uci_rename_policy),
 		UBUS_METHOD("order",   rpc_uci_order,   rpc_uci_order_policy),
 		UBUS_METHOD("changes", rpc_uci_changes, rpc_uci_config_policy),
