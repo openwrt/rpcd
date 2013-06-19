@@ -352,7 +352,7 @@ rpc_uci_dump_option(struct uci_option *o, const char *name)
  * corresponding section properties.
  */
 static void
-rpc_uci_dump_section(struct uci_section *s, const char *name)
+rpc_uci_dump_section(struct uci_section *s, const char *name, int index)
 {
 	void *c;
 	struct uci_option *o;
@@ -363,6 +363,9 @@ rpc_uci_dump_section(struct uci_section *s, const char *name)
 	blobmsg_add_u8(&buf, ".anonymous", s->anonymous);
 	blobmsg_add_string(&buf, ".type", s->type);
 	blobmsg_add_string(&buf, ".name", s->e.name);
+
+	if (index >= 0)
+		blobmsg_add_u32(&buf, ".index", index);
 
 	uci_foreach_element(&s->options, e)
 	{
@@ -387,15 +390,18 @@ rpc_uci_dump_package(struct uci_package *p, const char *name,
 {
 	void *c;
 	struct uci_element *e;
+	int i = -1;
 
 	c = blobmsg_open_table(&buf, name);
 
 	uci_foreach_element(&p->sections, e)
 	{
+		i++;
+
 		if (!rpc_uci_match_section(uci_to_section(e), type, matches))
 			continue;
 
-		rpc_uci_dump_section(uci_to_section(e), e->name);
+		rpc_uci_dump_section(uci_to_section(e), e->name, i);
 	}
 
 	blobmsg_close_table(&buf, c);
@@ -443,7 +449,7 @@ rpc_uci_get(struct ubus_context *ctx, struct ubus_object *obj,
 		break;
 
 	case UCI_TYPE_SECTION:
-		rpc_uci_dump_section(ptr.s, "values");
+		rpc_uci_dump_section(ptr.s, "values", -1);
 		break;
 
 	case UCI_TYPE_OPTION:
