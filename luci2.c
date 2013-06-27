@@ -338,14 +338,14 @@ rpc_luci2_init_list(struct ubus_context *ctx, struct ubus_object *obj,
 
 			while (fgets(path, sizeof(path) - 1, f))
 			{
-				p = strtok(path, "=");
+				p = strtok(path, "= \t");
 
-				if (!strcmp(p, "START") && !!(p = strtok(NULL, " \t\n")))
+				if (!strcmp(p, "START") && !!(p = strtok(NULL, "= \t\n")))
 				{
 					n = atoi(p);
 					blobmsg_add_u32(&buf, "start", n);
 				}
-				else if (!strcmp(p, "STOP") && !!(p = strtok(NULL, " \t\n")))
+				else if (!strcmp(p, "STOP") && !!(p = strtok(NULL, "= \t\n")))
 				{
 					blobmsg_add_u32(&buf, "stop", atoi(p));
 					break;
