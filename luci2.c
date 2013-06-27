@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
 #include <arpa/inet.h>
 #include <signal.h>
 
@@ -39,6 +41,17 @@ enum {
 static const struct blobmsg_policy rpc_signal_policy[__RPC_S_MAX] = {
 	[RPC_S_PID]    = { .name = "pid",    .type = BLOBMSG_TYPE_INT32 },
 	[RPC_S_SIGNAL] = { .name = "signal", .type = BLOBMSG_TYPE_INT32 },
+};
+
+enum {
+	RPC_I_NAME,
+	RPC_I_ACTION,
+	__RPC_I_MAX,
+};
+
+static const struct blobmsg_policy rpc_init_policy[__RPC_I_MAX] = {
+	[RPC_I_NAME]   = { .name = "name",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_I_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
 };
 
 
@@ -283,6 +296,148 @@ rpc_luci2_process_signal(struct ubus_context *ctx, struct ubus_object *obj,
 		return rpc_errno_status();
 
 	return 0;
+}
+
+static int
+rpc_luci2_init_list(struct ubus_context *ctx, struct ubus_object *obj,
+                    struct ubus_request_data *req, const char *method,
+                    struct blob_attr *msg)
+{
+	int n;
+	void *c, *t;
+	char *p, path[PATH_MAX];
+	struct stat s;
+	struct dirent *e;
+	FILE *f;
+	DIR *d;
+
+	if (!(d = opendir("/etc/init.d")))
+		return rpc_errno_status();
+
+	blob_buf_init(&buf, 0);
+	c = blobmsg_open_array(&buf, "initscripts");
+
+	while ((e = readdir(d)) != NULL)
+	{
+		snprintf(path, sizeof(path) - 1, "/etc/init.d/%s", e->d_name);
+
+		if (stat(path, &s) || !S_ISREG(s.st_mode) || !(s.st_mode & S_IXUSR))
+			continue;
+
+		if ((f = fopen(path, "r")) != NULL)
+		{
+			n = -1;
+			p = fgets(path, sizeof(path) - 1, f);
+
+			if (!p || !strstr(p, "/etc/rc.common"))
+				goto skip;
+
+			t = blobmsg_open_table(&buf, NULL);
+
+			blobmsg_add_string(&buf, "name", e->d_name);
+
+			while (fgets(path, sizeof(path) - 1, f))
+			{
+				p = strtok(path, "=");
+
+				if (!strcmp(p, "START") && !!(p = strtok(NULL, " \t\n")))
+				{
+					n = atoi(p);
+					blobmsg_add_u32(&buf, "start", n);
+				}
+				else if (!strcmp(p, "STOP") && !!(p = strtok(NULL, " \t\n")))
+				{
+					blobmsg_add_u32(&buf, "stop", atoi(p));
+					break;
+				}
+			}
+
+			if (n > -1)
+			{
+				snprintf(path, sizeof(path) - 1, "/etc/rc.d/S%02d%s",
+				         n, e->d_name);
+
+				blobmsg_add_u8(&buf, "enabled",
+				               (!stat(path, &s) && (s.st_mode & S_IXUSR)));
+			}
+			else
+			{
+				blobmsg_add_u8(&buf, "enabled", 0);
+			}
+
+			blobmsg_close_table(&buf, t);
+
+skip:
+			fclose(f);
+		}
+	}
+
+	closedir(d);
+	blobmsg_close_array(&buf, c);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
+static int
+rpc_luci2_init_action(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	int fd;
+	pid_t pid;
+	struct stat s;
+	char path[PATH_MAX];
+	const char *action;
+	struct blob_attr *tb[__RPC_I_MAX];
+
+	blobmsg_parse(rpc_init_policy, __RPC_I_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_I_NAME] || !tb[RPC_I_ACTION])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	action = blobmsg_data(tb[RPC_I_ACTION]);
+
+	if (strcmp(action, "start") && strcmp(action, "stop") &&
+	    strcmp(action, "reload") && strcmp(action, "restart") &&
+	    strcmp(action, "enable") && strcmp(action, "disable"))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	snprintf(path, sizeof(path) - 1, "/etc/init.d/%s",
+	         (char *)blobmsg_data(tb[RPC_I_NAME]));
+
+	if (stat(path, &s))
+		return rpc_errno_status();
+
+	if (!(s.st_mode & S_IXUSR))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	switch ((pid = fork()))
+	{
+	case -1:
+		return rpc_errno_status();
+
+	case 0:
+		uloop_done();
+
+		if ((fd = open("/dev/null", O_RDWR)) > -1)
+		{
+			dup2(fd, 0);
+			dup2(fd, 1);
+			dup2(fd, 2);
+
+			close(fd);
+		}
+
+		chdir("/");
+
+		if (execl(path, path, action, NULL))
+			return rpc_errno_status();
+
+	default:
+		return 0;
+	}
 }
 
 
@@ -814,6 +969,9 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		UBUS_METHOD_NOARG("process_list", rpc_luci2_process_list),
 		UBUS_METHOD("process_signal",     rpc_luci2_process_signal,
 		                                  rpc_signal_policy),
+		UBUS_METHOD_NOARG("init_list",    rpc_luci2_init_list),
+		UBUS_METHOD("init_action",        rpc_luci2_init_action,
+		                                  rpc_init_policy)
 	};
 
 	static struct ubus_object_type luci2_system_type =
