@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
@@ -52,6 +53,15 @@ enum {
 static const struct blobmsg_policy rpc_init_policy[__RPC_I_MAX] = {
 	[RPC_I_NAME]   = { .name = "name",   .type = BLOBMSG_TYPE_STRING },
 	[RPC_I_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
+};
+
+enum {
+	RPC_K_KEYS,
+	__RPC_K_MAX
+};
+
+static const struct blobmsg_policy rpc_sshkey_policy[__RPC_K_MAX] = {
+	[RPC_K_KEYS]   = { .name = "keys",   .type = BLOBMSG_TYPE_ARRAY },
 };
 
 
@@ -438,6 +448,71 @@ rpc_luci2_init_action(struct ubus_context *ctx, struct ubus_object *obj,
 	default:
 		return 0;
 	}
+}
+
+static int
+rpc_luci2_sshkeys_get(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	FILE *f;
+	void *c;
+	char *p, line[4096];
+
+	if (!(f = fopen("/etc/dropbear/authorized_keys", "r")))
+		return rpc_errno_status();
+
+	blob_buf_init(&buf, 0);
+	c = blobmsg_open_array(&buf, "keys");
+
+	while (fgets(line, sizeof(line) - 1, f))
+	{
+		for (p = line + strlen(line) - 1; (p > line) && isspace(*p); p--)
+			*p = 0;
+
+		for (p = line; isspace(*p); p++)
+			*p = 0;
+
+		if (*p)
+			blobmsg_add_string(&buf, NULL, p);
+	}
+
+	blobmsg_close_array(&buf, c);
+	fclose(f);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
+static int
+rpc_luci2_sshkeys_set(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	FILE *f;
+	int rem;
+	struct blob_attr *cur, *tb[__RPC_K_MAX];
+
+	blobmsg_parse(rpc_sshkey_policy, __RPC_K_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_K_KEYS])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (!(f = fopen("/etc/dropbear/authorized_keys", "w")))
+		return rpc_errno_status();
+
+	blobmsg_for_each_attr(cur, tb[RPC_K_KEYS], rem)
+	{
+		if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
+			continue;
+
+		fwrite(blobmsg_data(cur), blobmsg_data_len(cur) - 1, 1, f);
+		fwrite("\n", 1, 1, f);
+	}
+
+	fclose(f);
+	return 0;
 }
 
 
@@ -971,7 +1046,10 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		                                  rpc_signal_policy),
 		UBUS_METHOD_NOARG("init_list",    rpc_luci2_init_list),
 		UBUS_METHOD("init_action",        rpc_luci2_init_action,
-		                                  rpc_init_policy)
+		                                  rpc_init_policy),
+		UBUS_METHOD_NOARG("sshkeys_get",  rpc_luci2_sshkeys_get),
+		UBUS_METHOD("sshkeys_set",        rpc_luci2_sshkeys_set,
+		                                  rpc_sshkey_policy)
 	};
 
 	static struct ubus_object_type luci2_system_type =
