@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
@@ -62,6 +63,17 @@ enum {
 
 static const struct blobmsg_policy rpc_sshkey_policy[__RPC_K_MAX] = {
 	[RPC_K_KEYS]   = { .name = "keys",   .type = BLOBMSG_TYPE_ARRAY },
+};
+
+enum {
+	RPC_P_USER,
+	RPC_P_PASSWORD,
+	__RPC_P_MAX
+};
+
+static const struct blobmsg_policy rpc_password_policy[__RPC_P_MAX] = {
+	[RPC_P_USER]     = { .name = "user",     .type = BLOBMSG_TYPE_STRING },
+	[RPC_P_PASSWORD] = { .name = "password", .type = BLOBMSG_TYPE_STRING },
 };
 
 
@@ -513,6 +525,79 @@ rpc_luci2_sshkeys_set(struct ubus_context *ctx, struct ubus_object *obj,
 
 	fclose(f);
 	return 0;
+}
+
+static int
+rpc_luci2_password_set(struct ubus_context *ctx, struct ubus_object *obj,
+                       struct ubus_request_data *req, const char *method,
+                       struct blob_attr *msg)
+{
+	pid_t pid;
+	int fd, fds[2];
+	struct stat s;
+	struct blob_attr *tb[__RPC_P_MAX];
+
+	blobmsg_parse(rpc_password_policy, __RPC_P_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_P_USER] || !tb[RPC_P_PASSWORD])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (stat("/usr/bin/passwd", &s))
+		return UBUS_STATUS_NOT_FOUND;
+
+	if (!(s.st_mode & S_IXUSR))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	if (pipe(fds))
+		return rpc_errno_status();
+
+	switch ((pid = fork()))
+	{
+	case -1:
+		close(fds[0]);
+		close(fds[1]);
+		return rpc_errno_status();
+
+	case 0:
+		uloop_done();
+
+		dup2(fds[0], 0);
+		close(fds[0]);
+		close(fds[1]);
+
+		if ((fd = open("/dev/null", O_RDWR)) > -1)
+		{
+			dup2(fd, 1);
+			dup2(fd, 2);
+			close(fd);
+		}
+
+		chdir("/");
+
+		if (execl("/usr/bin/passwd", "/usr/bin/passwd",
+		          blobmsg_data(tb[RPC_P_USER]), NULL))
+			return rpc_errno_status();
+
+	default:
+		close(fds[0]);
+
+		write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
+		              blobmsg_data_len(tb[RPC_P_PASSWORD]) - 1);
+		write(fds[1], "\n", 1);
+
+		usleep(100 * 1000);
+
+		write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
+		              blobmsg_data_len(tb[RPC_P_PASSWORD]) - 1);
+		write(fds[1], "\n", 1);
+
+		close(fds[1]);
+
+		waitpid(pid, NULL, 0);
+
+		return 0;
+	}
 }
 
 
@@ -1049,7 +1134,9 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		                                  rpc_init_policy),
 		UBUS_METHOD_NOARG("sshkeys_get",  rpc_luci2_sshkeys_get),
 		UBUS_METHOD("sshkeys_set",        rpc_luci2_sshkeys_set,
-		                                  rpc_sshkey_policy)
+		                                  rpc_sshkey_policy),
+		UBUS_METHOD("password_set",       rpc_luci2_password_set,
+		                                  rpc_password_policy)
 	};
 
 	static struct ubus_object_type luci2_system_type =
