@@ -30,6 +30,7 @@
 #include <signal.h>
 
 #include "luci2.h"
+#include "exec.h"
 
 static struct blob_buf buf;
 static struct uci_context *cursor;
@@ -74,6 +75,37 @@ enum {
 static const struct blobmsg_policy rpc_password_policy[__RPC_P_MAX] = {
 	[RPC_P_USER]     = { .name = "user",     .type = BLOBMSG_TYPE_STRING },
 	[RPC_P_PASSWORD] = { .name = "password", .type = BLOBMSG_TYPE_STRING },
+};
+
+enum {
+	RPC_OM_LIMIT,
+	RPC_OM_OFFSET,
+	RPC_OM_PATTERN,
+	__RPC_OM_MAX
+};
+
+static const struct blobmsg_policy rpc_opkg_match_policy[__RPC_OM_MAX] = {
+	[RPC_OM_LIMIT]    = { .name = "limit",    .type = BLOBMSG_TYPE_INT32  },
+	[RPC_OM_OFFSET]   = { .name = "offset",   .type = BLOBMSG_TYPE_INT32  },
+	[RPC_OM_PATTERN]  = { .name = "pattern",  .type = BLOBMSG_TYPE_STRING },
+};
+
+enum {
+	RPC_OP_PACKAGE,
+	__RPC_OP_MAX
+};
+
+static const struct blobmsg_policy rpc_opkg_package_policy[__RPC_OP_MAX] = {
+	[RPC_OP_PACKAGE]  = { .name = "package",  .type = BLOBMSG_TYPE_STRING },
+};
+
+enum {
+	RPC_OC_CONFIG,
+	__RPC_OC_MAX
+};
+
+static const struct blobmsg_policy rpc_opkg_config_policy[__RPC_OC_MAX] = {
+	[RPC_OC_CONFIG]     = { .name = "config", .type = BLOBMSG_TYPE_STRING },
 };
 
 
@@ -1119,6 +1151,256 @@ rpc_luci2_network_routes6(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 
+struct opkg_state {
+	int cur_offset;
+	int cur_count;
+	int req_offset;
+	int req_count;
+	int total;
+	bool open;
+	void *array;
+};
+
+static int
+opkg_parse_list(struct blob_buf *blob, char *buf, int len, void *priv)
+{
+	struct opkg_state *s = priv;
+
+	char *ptr, *last;
+	char *nl = strchr(buf, '\n');
+	char *name = NULL, *vers = NULL, *desc = NULL;
+	void *c;
+
+	if (!nl)
+		return 0;
+
+	s->total++;
+
+	if (s->cur_offset++ < s->req_offset)
+		goto skip;
+
+	if (s->cur_count++ >= s->req_count)
+		goto skip;
+
+	if (!s->open)
+	{
+		s->open  = true;
+		s->array = blobmsg_open_array(blob, "packages");
+	}
+
+	for (ptr = buf, last = buf, *nl = 0; ptr <= nl; ptr++)
+	{
+		if (!*ptr || (*ptr == ' ' && *(ptr+1) == '-' && *(ptr+2) == ' '))
+		{
+			if (!name)
+			{
+				name = last;
+				last = ptr + 3;
+				*ptr = 0;
+				ptr += 2;
+			}
+			else if (!vers)
+			{
+				vers = last;
+				desc = *ptr ? (ptr + 3) : NULL;
+				*ptr = 0;
+				break;
+			}
+		}
+	}
+
+	if (name && vers)
+	{
+		c = blobmsg_open_array(blob, NULL);
+
+		blobmsg_add_string(blob, NULL, name);
+		blobmsg_add_string(blob, NULL, vers);
+
+		if (desc && *desc)
+			blobmsg_add_string(blob, NULL, desc);
+
+		blobmsg_close_array(blob, c);
+	}
+
+skip:
+	return (nl - buf + 1);
+}
+
+static void
+opkg_finish_list(struct blob_buf *blob, int status, void *priv)
+{
+	struct opkg_state *s = priv;
+
+	if (!s->open)
+		return;
+
+	blobmsg_close_array(blob, s->array);
+	blobmsg_add_u32(blob, "total", s->total);
+}
+
+static int
+opkg_exec_list(const char *action, struct blob_attr *msg,
+               struct ubus_context *ctx, struct ubus_request_data *req)
+{
+	struct opkg_state *state = NULL;
+	struct blob_attr *tb[__RPC_OM_MAX];
+	const char *cmd[5] = { "opkg", action, "-nocase", NULL, NULL };
+
+	blobmsg_parse(rpc_opkg_match_policy, __RPC_OM_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	state = malloc(sizeof(*state));
+
+	if (!state)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	memset(state, 0, sizeof(*state));
+
+	if (tb[RPC_OM_PATTERN])
+		cmd[3] = blobmsg_data(tb[RPC_OM_PATTERN]);
+
+	if (tb[RPC_OM_LIMIT])
+		state->req_count = blobmsg_get_u32(tb[RPC_OM_LIMIT]);
+
+	if (tb[RPC_OM_OFFSET])
+		state->req_offset = blobmsg_get_u32(tb[RPC_OM_OFFSET]);
+
+	if (state->req_offset < 0)
+		state->req_offset = 0;
+
+	if (state->req_count <= 0 || state->req_count > 100)
+		state->req_count = 100;
+
+	return rpc_exec(cmd, opkg_parse_list, NULL, opkg_finish_list,
+	                state, ctx, req);
+}
+
+
+static int
+rpc_luci2_opkg_list(struct ubus_context *ctx, struct ubus_object *obj,
+                    struct ubus_request_data *req, const char *method,
+                    struct blob_attr *msg)
+{
+	return opkg_exec_list("list", msg, ctx, req);
+}
+
+static int
+rpc_luci2_opkg_list_installed(struct ubus_context *ctx, struct ubus_object *obj,
+                              struct ubus_request_data *req, const char *method,
+                              struct blob_attr *msg)
+{
+	return opkg_exec_list("list-installed", msg, ctx, req);
+}
+
+static int
+rpc_luci2_opkg_find(struct ubus_context *ctx, struct ubus_object *obj,
+                    struct ubus_request_data *req, const char *method,
+                    struct blob_attr *msg)
+{
+	return opkg_exec_list("find", msg, ctx, req);
+}
+
+static int
+rpc_luci2_opkg_update(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	const char *cmd[3] = { "opkg", "update", NULL };
+	return rpc_exec(cmd, NULL, NULL, NULL, NULL, ctx, req);
+}
+
+static int
+rpc_luci2_opkg_install(struct ubus_context *ctx, struct ubus_object *obj,
+                       struct ubus_request_data *req, const char *method,
+                       struct blob_attr *msg)
+{
+	struct blob_attr *tb[__RPC_OP_MAX];
+	const char *cmd[5] = { "opkg", "--force-overwrite",
+	                       "install", NULL, NULL };
+
+	blobmsg_parse(rpc_opkg_package_policy, __RPC_OP_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_OP_PACKAGE])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	cmd[3] = blobmsg_data(tb[RPC_OP_PACKAGE]);
+
+	return rpc_exec(cmd, NULL, NULL, NULL, NULL, ctx, req);
+}
+
+static int
+rpc_luci2_opkg_remove(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	struct blob_attr *tb[__RPC_OP_MAX];
+	const char *cmd[5] = { "opkg", "--force-removal-of-dependent-packages",
+	                       "remove", NULL, NULL };
+
+	blobmsg_parse(rpc_opkg_package_policy, __RPC_OP_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_OP_PACKAGE])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	cmd[3] = blobmsg_data(tb[RPC_OP_PACKAGE]);
+
+	return rpc_exec(cmd, NULL, NULL, NULL, NULL, ctx, req);
+}
+
+static int
+rpc_luci2_opkg_config_get(struct ubus_context *ctx, struct ubus_object *obj,
+                          struct ubus_request_data *req, const char *method,
+                          struct blob_attr *msg)
+{
+	FILE *f;
+	char conf[2048] = { 0 };
+
+	if (!(f = fopen("/etc/opkg.conf", "r")))
+		return rpc_errno_status();
+
+	fread(conf, sizeof(conf) - 1, 1, f);
+	fclose(f);
+
+	blob_buf_init(&buf, 0);
+	blobmsg_add_string(&buf, "config", conf);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
+static int
+rpc_luci2_opkg_config_set(struct ubus_context *ctx, struct ubus_object *obj,
+                          struct ubus_request_data *req, const char *method,
+                          struct blob_attr *msg)
+{
+	FILE *f;
+	struct blob_attr *tb[__RPC_OC_MAX];
+
+	blobmsg_parse(rpc_opkg_package_policy, __RPC_OC_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_OC_CONFIG])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (blobmsg_type(tb[RPC_OC_CONFIG]) != BLOBMSG_TYPE_STRING)
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (blobmsg_data_len(tb[RPC_OC_CONFIG]) >= 2048)
+		return UBUS_STATUS_NOT_SUPPORTED;
+
+	if (!(f = fopen("/etc/opkg.conf", "w")))
+		return rpc_errno_status();
+
+	fwrite(blobmsg_data(tb[RPC_OC_CONFIG]),
+	       blobmsg_data_len(tb[RPC_OC_CONFIG]), 1, f);
+
+	fclose(f);
+	return 0;
+}
+
+
 int rpc_luci2_api_init(struct ubus_context *ctx)
 {
 	int rv = 0;
@@ -1170,6 +1452,34 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		.n_methods = ARRAY_SIZE(luci2_network_methods),
 	};
 
+
+	static const struct ubus_method luci2_opkg_methods[] = {
+		UBUS_METHOD("list",                  rpc_luci2_opkg_list,
+		                                     rpc_opkg_match_policy),
+		UBUS_METHOD("list_installed",        rpc_luci2_opkg_list_installed,
+		                                     rpc_opkg_match_policy),
+		UBUS_METHOD("find",                  rpc_luci2_opkg_find,
+		                                     rpc_opkg_match_policy),
+		UBUS_METHOD("install",               rpc_luci2_opkg_install,
+		                                     rpc_opkg_package_policy),
+		UBUS_METHOD("remove",                rpc_luci2_opkg_remove,
+		                                     rpc_opkg_package_policy),
+		UBUS_METHOD_NOARG("update",          rpc_luci2_opkg_update),
+		UBUS_METHOD_NOARG("config_get",      rpc_luci2_opkg_config_get),
+		UBUS_METHOD("config_set",            rpc_luci2_opkg_config_set,
+		                                     rpc_opkg_config_policy)
+	};
+
+	static struct ubus_object_type luci2_opkg_type =
+		UBUS_OBJECT_TYPE("luci-rpc-luci2-network", luci2_opkg_methods);
+
+	static struct ubus_object opkg_obj = {
+		.name = "luci2.opkg",
+		.type = &luci2_opkg_type,
+		.methods = luci2_opkg_methods,
+		.n_methods = ARRAY_SIZE(luci2_opkg_methods),
+	};
+
 	cursor = uci_alloc_context();
 
 	if (!cursor)
@@ -1177,6 +1487,7 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 
 	rv |= ubus_add_object(ctx, &system_obj);
 	rv |= ubus_add_object(ctx, &network_obj);
+	rv |= ubus_add_object(ctx, &opkg_obj);
 
 	return rv;
 }
