@@ -25,6 +25,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/statvfs.h>
 #include <dirent.h>
 #include <arpa/inet.h>
 #include <signal.h>
@@ -254,6 +255,39 @@ rpc_luci2_system_dmesg(struct ubus_context *ctx, struct ubus_object *obj,
 
 	log_read(log, RPC_LUCI2_MAX_LOGSIZE);
 	fclose(log);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
+static int
+rpc_luci2_system_diskfree(struct ubus_context *ctx, struct ubus_object *obj,
+                          struct ubus_request_data *req, const char *method,
+                          struct blob_attr *msg)
+{
+	int i;
+	void *c;
+	struct statvfs s;
+	const char *fslist[] = {
+		"/",    "root",
+		"/tmp", "tmp",
+	};
+
+	blob_buf_init(&buf, 0);
+
+	for (i = 0; i < sizeof(fslist) / sizeof(fslist[0]); i += 2)
+	{
+		if (statvfs(fslist[i], &s))
+			continue;
+
+		c = blobmsg_open_table(&buf, fslist[i+1]);
+
+		blobmsg_add_u32(&buf, "total", s.f_blocks * s.f_frsize);
+		blobmsg_add_u32(&buf, "free",  s.f_bfree  * s.f_frsize);
+		blobmsg_add_u32(&buf, "used", (s.f_blocks - s.f_bfree) * s.f_frsize);
+
+		blobmsg_close_table(&buf, c);
+	}
 
 	ubus_send_reply(ctx, req, buf.head);
 	return 0;
@@ -1408,6 +1442,7 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 	static const struct ubus_method luci2_system_methods[] = {
 		UBUS_METHOD_NOARG("syslog",       rpc_luci2_system_log),
 		UBUS_METHOD_NOARG("dmesg",        rpc_luci2_system_dmesg),
+		UBUS_METHOD_NOARG("diskfree",     rpc_luci2_system_diskfree),
 		UBUS_METHOD_NOARG("process_list", rpc_luci2_process_list),
 		UBUS_METHOD("process_signal",     rpc_luci2_process_signal,
 		                                  rpc_signal_policy),
