@@ -59,12 +59,12 @@ static const struct blobmsg_policy rpc_init_policy[__RPC_I_MAX] = {
 };
 
 enum {
-	RPC_RC_DATA,
-	__RPC_RC_MAX
+	RPC_D_DATA,
+	__RPC_D_MAX
 };
 
-static const struct blobmsg_policy rpc_rclocal_policy[__RPC_RC_MAX] = {
-	[RPC_RC_DATA]   = { .name = "data",  .type = BLOBMSG_TYPE_STRING },
+static const struct blobmsg_policy rpc_data_policy[__RPC_D_MAX] = {
+	[RPC_D_DATA]   = { .name = "data",  .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -564,19 +564,68 @@ rpc_luci2_rclocal_set(struct ubus_context *ctx, struct ubus_object *obj,
                       struct blob_attr *msg)
 {
 	FILE *f;
-	struct blob_attr *tb[__RPC_RC_MAX];
+	struct blob_attr *tb[__RPC_D_MAX];
 
-	blobmsg_parse(rpc_rclocal_policy, __RPC_RC_MAX, tb,
+	blobmsg_parse(rpc_data_policy, __RPC_D_MAX, tb,
 	              blob_data(msg), blob_len(msg));
 
-	if (!tb[RPC_RC_DATA] || blobmsg_data_len(tb[RPC_RC_DATA]) >= 4096)
+	if (!tb[RPC_D_DATA] || blobmsg_data_len(tb[RPC_D_DATA]) >= 4096)
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
 	if (!(f = fopen("/etc/rc.local", "w")))
 		return rpc_errno_status();
 
-	fwrite(blobmsg_data(tb[RPC_RC_DATA]),
-	       blobmsg_data_len(tb[RPC_RC_DATA]) - 1, 1, f);
+	fwrite(blobmsg_data(tb[RPC_D_DATA]),
+	       blobmsg_data_len(tb[RPC_D_DATA]) - 1, 1, f);
+
+	fclose(f);
+	return 0;
+}
+
+static int
+rpc_luci2_crontab_get(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	FILE *f;
+	char data[4096] = { 0 };
+
+	if (!(f = fopen("/etc/crontabs/root", "r")))
+		return rpc_errno_status();
+
+	fread(data, sizeof(data) - 1, 1, f);
+	fclose(f);
+
+	blob_buf_init(&buf, 0);
+	blobmsg_add_string(&buf, "data", data);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
+static int
+rpc_luci2_crontab_set(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	FILE *f;
+	struct stat s;
+	struct blob_attr *tb[__RPC_D_MAX];
+
+	blobmsg_parse(rpc_data_policy, __RPC_D_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_D_DATA] || blobmsg_data_len(tb[RPC_D_DATA]) >= 4096)
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (stat("/etc/crontabs", &s) && mkdir("/etc/crontabs", 0755))
+		return rpc_errno_status();
+
+	if (!(f = fopen("/etc/crontabs/root", "w")))
+		return rpc_errno_status();
+
+	fwrite(blobmsg_data(tb[RPC_D_DATA]),
+	       blobmsg_data_len(tb[RPC_D_DATA]) - 1, 1, f);
 
 	fclose(f);
 	return 0;
@@ -1505,7 +1554,10 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		                                  rpc_init_policy),
 		UBUS_METHOD_NOARG("rclocal_get",  rpc_luci2_rclocal_get),
 		UBUS_METHOD("rclocal_set",        rpc_luci2_rclocal_set,
-		                                  rpc_rclocal_policy),
+		                                  rpc_data_policy),
+		UBUS_METHOD_NOARG("crontab_get",  rpc_luci2_crontab_get),
+		UBUS_METHOD("crontab_set",        rpc_luci2_crontab_set,
+		                                  rpc_data_policy),
 		UBUS_METHOD_NOARG("sshkeys_get",  rpc_luci2_sshkeys_get),
 		UBUS_METHOD("sshkeys_set",        rpc_luci2_sshkeys_set,
 		                                  rpc_sshkey_policy),
