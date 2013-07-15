@@ -24,7 +24,7 @@
 #include <libubox/ustream.h>
 
 #define RPC_EXEC_MAX_SIZE		(4096 * 64)
-#define RPC_EXEC_MAX_RUNTIME	(3 * 1000)
+#define RPC_EXEC_MAX_RUNTIME	(30 * 1000)
 
 #define ustream_for_each_read_buffer(stream, ptr, len) \
 	for (ptr = ustream_get_read_buf(stream, &len);     \
