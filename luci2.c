@@ -109,15 +109,6 @@ static const struct blobmsg_policy rpc_opkg_package_policy[__RPC_OP_MAX] = {
 	[RPC_OP_PACKAGE]  = { .name = "package",  .type = BLOBMSG_TYPE_STRING },
 };
 
-enum {
-	RPC_OC_CONFIG,
-	__RPC_OC_MAX
-};
-
-static const struct blobmsg_policy rpc_opkg_config_policy[__RPC_OC_MAX] = {
-	[RPC_OC_CONFIG]     = { .name = "config", .type = BLOBMSG_TYPE_STRING },
-};
-
 
 static int
 rpc_errno_status(void)
@@ -1690,25 +1681,22 @@ rpc_luci2_opkg_config_set(struct ubus_context *ctx, struct ubus_object *obj,
                           struct blob_attr *msg)
 {
 	FILE *f;
-	struct blob_attr *tb[__RPC_OC_MAX];
+	struct blob_attr *tb[__RPC_D_MAX];
 
-	blobmsg_parse(rpc_opkg_package_policy, __RPC_OC_MAX, tb,
+	blobmsg_parse(rpc_data_policy, __RPC_D_MAX, tb,
 	              blob_data(msg), blob_len(msg));
 
-	if (!tb[RPC_OC_CONFIG])
+	if (!tb[RPC_D_DATA])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
-	if (blobmsg_type(tb[RPC_OC_CONFIG]) != BLOBMSG_TYPE_STRING)
-		return UBUS_STATUS_INVALID_ARGUMENT;
-
-	if (blobmsg_data_len(tb[RPC_OC_CONFIG]) >= 2048)
+	if (blobmsg_data_len(tb[RPC_D_DATA]) >= 2048)
 		return UBUS_STATUS_NOT_SUPPORTED;
 
 	if (!(f = fopen("/etc/opkg.conf", "w")))
 		return rpc_errno_status();
 
-	fwrite(blobmsg_data(tb[RPC_OC_CONFIG]),
-	       blobmsg_data_len(tb[RPC_OC_CONFIG]), 1, f);
+	fwrite(blobmsg_data(tb[RPC_D_DATA]),
+	       blobmsg_data_len(tb[RPC_D_DATA]), 1, f);
 
 	fclose(f);
 	return 0;
@@ -1790,7 +1778,7 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		UBUS_METHOD_NOARG("update",          rpc_luci2_opkg_update),
 		UBUS_METHOD_NOARG("config_get",      rpc_luci2_opkg_config_get),
 		UBUS_METHOD("config_set",            rpc_luci2_opkg_config_set,
-		                                     rpc_opkg_config_policy)
+		                                     rpc_data_policy)
 	};
 
 	static struct ubus_object_type luci2_opkg_type =
