@@ -769,6 +769,183 @@ rpc_luci2_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 }
 
+static int
+rpc_luci2_led_list(struct ubus_context *ctx, struct ubus_object *obj,
+                   struct ubus_request_data *req, const char *method,
+                   struct blob_attr *msg)
+{
+	DIR *d;
+	FILE *f;
+	void *list, *led, *trigger;
+	char *p, *active_trigger, line[512];
+	struct dirent *e;
+
+	if (!(d = opendir("/sys/class/leds")))
+		return rpc_errno_status();
+
+	blob_buf_init(&buf, 0);
+	list = blobmsg_open_array(&buf, "leds");
+
+	while ((e = readdir(d)) != NULL)
+	{
+		snprintf(line, sizeof(line) - 1, "/sys/class/leds/%s/trigger",
+		         e->d_name);
+
+		if (!(f = fopen(line, "r")))
+			continue;
+
+		led = blobmsg_open_table(&buf, NULL);
+
+		blobmsg_add_string(&buf, "name", e->d_name);
+
+		if (fgets(line, sizeof(line) - 1, f))
+		{
+			trigger = blobmsg_open_array(&buf, "triggers");
+
+			for (p = strtok(line, " \n"), active_trigger = NULL;
+			     p != NULL;
+			     p = strtok(NULL, " \n"))
+			{
+				if (*p == '[')
+				{
+					*(p + strlen(p) - 1) = 0;
+					*p++ = 0;
+					active_trigger = p;
+				}
+
+				blobmsg_add_string(&buf, NULL, p);
+			}
+
+			blobmsg_close_array(&buf, trigger);
+
+			if (active_trigger)
+				blobmsg_add_string(&buf, "active_trigger", active_trigger);
+		}
+
+		fclose(f);
+
+		snprintf(line, sizeof(line) - 1, "/sys/class/leds/%s/brightness",
+		         e->d_name);
+
+		if ((f = fopen(line, "r")) != NULL)
+		{
+			if (fgets(line, sizeof(line) - 1, f))
+				blobmsg_add_u32(&buf, "brightness", atoi(line));
+
+			fclose(f);
+		}
+
+		snprintf(line, sizeof(line) - 1, "/sys/class/leds/%s/max_brightness",
+		         e->d_name);
+
+		if ((f = fopen(line, "r")) != NULL)
+		{
+			if (fgets(line, sizeof(line) - 1, f))
+				blobmsg_add_u32(&buf, "max_brightness", atoi(line));
+
+			fclose(f);
+		}
+
+		blobmsg_close_table(&buf, led);
+	}
+
+	closedir(d);
+
+	blobmsg_close_array(&buf, list);
+	ubus_send_reply(ctx, req, buf.head);
+
+	return 0;
+}
+
+static int
+rpc_luci2_usb_list(struct ubus_context *ctx, struct ubus_object *obj,
+                   struct ubus_request_data *req, const char *method,
+                   struct blob_attr *msg)
+{
+	DIR *d;
+	FILE *f;
+	int i;
+	void *list, *device;
+	char *p, line[512];
+	struct stat s;
+	struct dirent *e;
+
+	const char *attributes[] = {
+		"manufacturer", "vendor_name",  "s",
+		"product",      "product_name", "s",
+		"idVendor",     "vendor_id",    "x",
+		"idProduct",    "product_id",   "x",
+		"serial",       "serial",       "s",
+		"speed",        "speed",        "d",
+	};
+
+	if (!(d = opendir("/sys/bus/usb/devices")))
+		return rpc_errno_status();
+
+	blob_buf_init(&buf, 0);
+	list = blobmsg_open_array(&buf, "devices");
+
+	while ((e = readdir(d)) != NULL)
+	{
+		if (e->d_name[0] < '0' || e->d_name[0] > '9')
+			continue;
+
+		snprintf(line, sizeof(line) - 1,
+		         "/sys/bus/usb/devices/%s/%s", e->d_name, attributes[0]);
+
+		if (stat(line, &s))
+			continue;
+
+		device = blobmsg_open_table(&buf, NULL);
+
+		blobmsg_add_string(&buf, "name", e->d_name);
+
+		for (i = 0; i < sizeof(attributes) / sizeof(attributes[0]); i += 3)
+		{
+			snprintf(line, sizeof(line) - 1,
+					 "/sys/bus/usb/devices/%s/%s", e->d_name, attributes[i]);
+
+			if (!(f = fopen(line, "r")))
+				continue;
+
+			if (fgets(line, sizeof(line) - 1, f))
+			{
+				switch (*attributes[i+2])
+				{
+				case 'x':
+					blobmsg_add_u32(&buf, attributes[i+1],
+					                strtoul(line, NULL, 16));
+					break;
+
+				case 'd':
+					blobmsg_add_u32(&buf, attributes[i+1],
+					                strtoul(line, NULL, 10));
+					break;
+
+				default:
+					if ((p = strchr(line, '\n')) != NULL)
+						while (p > line && isspace(*p))
+							*p-- = 0;
+
+					blobmsg_add_string(&buf, attributes[i+1], line);
+					break;
+				}
+			}
+
+			fclose(f);
+		}
+
+		blobmsg_close_table(&buf, device);
+	}
+
+	closedir(d);
+
+	blobmsg_close_array(&buf, list);
+	ubus_send_reply(ctx, req, buf.head);
+
+	return 0;
+}
+
 
 static FILE *
 dnsmasq_leasefile(void)
@@ -1562,7 +1739,9 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		UBUS_METHOD("sshkeys_set",        rpc_luci2_sshkeys_set,
 		                                  rpc_sshkey_policy),
 		UBUS_METHOD("password_set",       rpc_luci2_password_set,
-		                                  rpc_password_policy)
+		                                  rpc_password_policy),
+		UBUS_METHOD_NOARG("led_list",     rpc_luci2_led_list),
+		UBUS_METHOD_NOARG("usb_list",     rpc_luci2_usb_list)
 	};
 
 	static struct ubus_object_type luci2_system_type =
