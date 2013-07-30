@@ -109,6 +109,15 @@ static const struct blobmsg_policy rpc_opkg_package_policy[__RPC_OP_MAX] = {
 	[RPC_OP_PACKAGE]  = { .name = "package",  .type = BLOBMSG_TYPE_STRING },
 };
 
+enum {
+	RPC_UPGRADE_KEEP,
+	__RPC_UPGRADE_MAX
+};
+
+static const struct blobmsg_policy rpc_upgrade_policy[__RPC_UPGRADE_MAX] = {
+	[RPC_UPGRADE_KEEP] = { .name = "keep",    .type = BLOBMSG_TYPE_BOOL },
+};
+
 
 static int
 rpc_errno_status(void)
@@ -937,6 +946,32 @@ rpc_luci2_usb_list(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+static int
+rpc_luci2_upgrade_test(struct ubus_context *ctx, struct ubus_object *obj,
+                       struct ubus_request_data *req, const char *method,
+                       struct blob_attr *msg)
+{
+	const char *cmd[4] = { "sysupgrade", "--test", "/tmp/firmware.bin", NULL };
+	return rpc_exec(cmd, NULL, NULL, NULL, NULL, ctx, req);
+}
+
+static int
+rpc_luci2_upgrade_start(struct ubus_context *ctx, struct ubus_object *obj,
+                        struct ubus_request_data *req, const char *method,
+                        struct blob_attr *msg)
+{
+	return 0;
+}
+
+static int
+rpc_luci2_upgrade_abort(struct ubus_context *ctx, struct ubus_object *obj,
+                        struct ubus_request_data *req, const char *method,
+                        struct blob_attr *msg)
+{
+	unlink("/tmp/firmware.bin");
+	return 0;
+}
+
 
 static FILE *
 dnsmasq_leasefile(void)
@@ -1729,7 +1764,11 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		UBUS_METHOD("password_set",       rpc_luci2_password_set,
 		                                  rpc_password_policy),
 		UBUS_METHOD_NOARG("led_list",     rpc_luci2_led_list),
-		UBUS_METHOD_NOARG("usb_list",     rpc_luci2_usb_list)
+		UBUS_METHOD_NOARG("usb_list",     rpc_luci2_usb_list),
+		UBUS_METHOD_NOARG("upgrade_test", rpc_luci2_upgrade_test),
+		UBUS_METHOD("upgrade_start",      rpc_luci2_upgrade_start,
+		                                  rpc_upgrade_policy),
+		UBUS_METHOD_NOARG("upgrade_abort", rpc_luci2_upgrade_abort)
 	};
 
 	static struct ubus_object_type luci2_system_type =
