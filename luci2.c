@@ -1061,6 +1061,34 @@ rpc_luci2_reset_start(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 }
 
+static int
+rpc_luci2_reboot(struct ubus_context *ctx, struct ubus_object *obj,
+                 struct ubus_request_data *req, const char *method,
+                 struct blob_attr *msg)
+{
+	switch (fork())
+	{
+	case -1:
+		return rpc_errno_status();
+
+	case 0:
+		chdir("/");
+
+		close(0);
+		close(1);
+		close(2);
+
+		sleep(1);
+
+		execl("/sbin/reboot", "/sbin/reboot", NULL);
+
+		return rpc_errno_status();
+
+	default:
+		return 0;
+	}
+}
+
 
 static FILE *
 dnsmasq_leasefile(void)
@@ -1861,7 +1889,8 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		UBUS_METHOD_NOARG("backup_restore", rpc_luci2_backup_restore),
 		UBUS_METHOD_NOARG("backup_clean", rpc_luci2_backup_clean),
 		UBUS_METHOD_NOARG("reset_test",   rpc_luci2_reset_test),
-		UBUS_METHOD_NOARG("reset_start",  rpc_luci2_reset_start)
+		UBUS_METHOD_NOARG("reset_start",  rpc_luci2_reset_start),
+		UBUS_METHOD_NOARG("reboot",       rpc_luci2_reboot)
 	};
 
 	static struct ubus_object_type luci2_system_type =
