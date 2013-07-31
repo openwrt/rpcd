@@ -964,11 +964,35 @@ rpc_luci2_upgrade_start(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 static int
-rpc_luci2_upgrade_abort(struct ubus_context *ctx, struct ubus_object *obj,
+rpc_luci2_upgrade_clean(struct ubus_context *ctx, struct ubus_object *obj,
                         struct ubus_request_data *req, const char *method,
                         struct blob_attr *msg)
 {
-	unlink("/tmp/firmware.bin");
+	if (unlink("/tmp/firmware.bin"))
+		return rpc_errno_status();
+
+	return 0;
+}
+
+static int
+rpc_luci2_backup_restore(struct ubus_context *ctx, struct ubus_object *obj,
+                         struct ubus_request_data *req, const char *method,
+                         struct blob_attr *msg)
+{
+	const char *cmd[4] = { "sysupgrade", "--restore-backup",
+	                       "/tmp/backup.tar.gz", NULL };
+
+	return rpc_exec(cmd, NULL, NULL, NULL, NULL, ctx, req);
+}
+
+static int
+rpc_luci2_backup_clean(struct ubus_context *ctx, struct ubus_object *obj,
+                       struct ubus_request_data *req, const char *method,
+                       struct blob_attr *msg)
+{
+	if (unlink("/tmp/backup.tar.gz"))
+		return rpc_errno_status();
+
 	return 0;
 }
 
@@ -1768,7 +1792,9 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		UBUS_METHOD_NOARG("upgrade_test", rpc_luci2_upgrade_test),
 		UBUS_METHOD("upgrade_start",      rpc_luci2_upgrade_start,
 		                                  rpc_upgrade_policy),
-		UBUS_METHOD_NOARG("upgrade_abort", rpc_luci2_upgrade_abort)
+		UBUS_METHOD_NOARG("upgrade_clean", rpc_luci2_upgrade_clean),
+		UBUS_METHOD_NOARG("backup_restore", rpc_luci2_backup_restore),
+		UBUS_METHOD_NOARG("backup_clean", rpc_luci2_backup_clean)
 	};
 
 	static struct ubus_object_type luci2_system_type =
