@@ -996,6 +996,71 @@ rpc_luci2_backup_clean(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+static int
+rpc_luci2_reset_test(struct ubus_context *ctx, struct ubus_object *obj,
+                     struct ubus_request_data *req, const char *method,
+                     struct blob_attr *msg)
+{
+	FILE *mtd;
+	struct stat s;
+	char line[64] = { 0 };
+	bool supported = false;
+
+	if (!stat("/sbin/mtd", &s) && (s.st_mode & S_IXUSR))
+	{
+		if ((mtd = fopen("/proc/mtd", "r")) != NULL)
+		{
+			while (fgets(line, sizeof(line) - 1, mtd))
+			{
+				if (strstr(line, "\"rootfs_data\""))
+				{
+					supported = true;
+					break;
+				}
+			}
+
+			fclose(mtd);
+		}
+	}
+
+	blob_buf_init(&buf, 0);
+	blobmsg_add_u8(&buf, "supported", supported);
+
+	ubus_send_reply(ctx, req, buf.head);
+
+	return 0;
+}
+
+static int
+rpc_luci2_reset_start(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	switch (fork())
+	{
+	case -1:
+		return rpc_errno_status();
+
+	case 0:
+		uloop_done();
+
+		chdir("/");
+
+		close(0);
+		close(1);
+		close(2);
+
+		sleep(1);
+
+		execl("/sbin/mtd", "/sbin/mtd", "-r", "erase", "rootfs_data", NULL);
+
+		return rpc_errno_status();
+
+	default:
+		return 0;
+	}
+}
+
 
 static FILE *
 dnsmasq_leasefile(void)
@@ -1794,7 +1859,9 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		                                  rpc_upgrade_policy),
 		UBUS_METHOD_NOARG("upgrade_clean", rpc_luci2_upgrade_clean),
 		UBUS_METHOD_NOARG("backup_restore", rpc_luci2_backup_restore),
-		UBUS_METHOD_NOARG("backup_clean", rpc_luci2_backup_clean)
+		UBUS_METHOD_NOARG("backup_clean", rpc_luci2_backup_clean),
+		UBUS_METHOD_NOARG("reset_test",   rpc_luci2_reset_test),
+		UBUS_METHOD_NOARG("reset_start",  rpc_luci2_reset_start)
 	};
 
 	static struct ubus_object_type luci2_system_type =
