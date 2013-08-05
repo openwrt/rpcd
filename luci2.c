@@ -1952,7 +1952,7 @@ rpc_luci2_opkg_config_set(struct ubus_context *ctx, struct ubus_object *obj,
 		return rpc_errno_status();
 
 	fwrite(blobmsg_data(tb[RPC_D_DATA]),
-	       blobmsg_data_len(tb[RPC_D_DATA]), 1, f);
+	       blobmsg_data_len(tb[RPC_D_DATA]) - 1, 1, f);
 
 	fclose(f);
 	return 0;
