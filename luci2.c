@@ -997,6 +997,110 @@ rpc_luci2_backup_clean(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 static int
+rpc_luci2_backup_config_get(struct ubus_context *ctx, struct ubus_object *obj,
+                            struct ubus_request_data *req, const char *method,
+                            struct blob_attr *msg)
+{
+	FILE *f;
+	char conf[2048] = { 0 };
+
+	if (!(f = fopen("/etc/sysupgrade.conf", "r")))
+		return rpc_errno_status();
+
+	fread(conf, sizeof(conf) - 1, 1, f);
+	fclose(f);
+
+	blob_buf_init(&buf, 0);
+	blobmsg_add_string(&buf, "config", conf);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
+static int
+rpc_luci2_backup_config_set(struct ubus_context *ctx, struct ubus_object *obj,
+                            struct ubus_request_data *req, const char *method,
+                            struct blob_attr *msg)
+{
+	FILE *f;
+	struct blob_attr *tb[__RPC_D_MAX];
+
+	blobmsg_parse(rpc_data_policy, __RPC_D_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_D_DATA])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (blobmsg_data_len(tb[RPC_D_DATA]) >= 2048)
+		return UBUS_STATUS_NOT_SUPPORTED;
+
+	if (!(f = fopen("/etc/sysupgrade.conf", "w")))
+		return rpc_errno_status();
+
+	fwrite(blobmsg_data(tb[RPC_D_DATA]),
+	       blobmsg_data_len(tb[RPC_D_DATA]) - 1, 1, f);
+
+	fclose(f);
+	return 0;
+}
+
+struct backup_state {
+	bool open;
+	void *array;
+};
+
+static int
+backup_parse_list(struct blob_buf *blob, char *buf, int len, void *priv)
+{
+	struct backup_state *s = priv;
+	char *nl = strchr(buf, '\n');
+
+	if (!nl)
+		return 0;
+
+	if (!s->open)
+	{
+		s->open  = true;
+		s->array = blobmsg_open_array(blob, "files");
+	}
+
+	*nl = 0;
+	blobmsg_add_string(blob, NULL, buf);
+
+	return (nl - buf + 1);
+}
+
+static void
+backup_finish_list(struct blob_buf *blob, int status, void *priv)
+{
+	struct backup_state *s = priv;
+
+	if (!s->open)
+		return;
+
+	blobmsg_close_array(blob, s->array);
+}
+
+static int
+rpc_luci2_backup_list(struct ubus_context *ctx, struct ubus_object *obj,
+                      struct ubus_request_data *req, const char *method,
+                      struct blob_attr *msg)
+{
+	struct backup_state *state = NULL;
+	const char *cmd[3] = { "sysupgrade", "--list-backup", NULL };
+
+	state = malloc(sizeof(*state));
+
+	if (!state)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	memset(state, 0, sizeof(*state));
+
+	return rpc_exec(cmd, backup_parse_list, NULL, backup_finish_list,
+	                state, ctx, req);
+}
+
+static int
 rpc_luci2_reset_test(struct ubus_context *ctx, struct ubus_object *obj,
                      struct ubus_request_data *req, const char *method,
                      struct blob_attr *msg)
@@ -1888,6 +1992,10 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		UBUS_METHOD_NOARG("upgrade_clean", rpc_luci2_upgrade_clean),
 		UBUS_METHOD_NOARG("backup_restore", rpc_luci2_backup_restore),
 		UBUS_METHOD_NOARG("backup_clean", rpc_luci2_backup_clean),
+		UBUS_METHOD_NOARG("backup_config_get", rpc_luci2_backup_config_get),
+		UBUS_METHOD("backup_config_set",  rpc_luci2_backup_config_set,
+		                                  rpc_data_policy),
+		UBUS_METHOD_NOARG("backup_list",  rpc_luci2_backup_list),
 		UBUS_METHOD_NOARG("reset_test",   rpc_luci2_reset_test),
 		UBUS_METHOD_NOARG("reset_start",  rpc_luci2_reset_start),
 		UBUS_METHOD_NOARG("reboot",       rpc_luci2_reboot)
