@@ -42,6 +42,11 @@ struct rpc_session_data {
 	struct blob_attr attr[];
 };
 
+struct rpc_session_acl_scope {
+	struct avl_node avl;
+	struct avl_tree acls;
+};
+
 struct rpc_session_acl {
 	struct avl_node avl;
 	const char *object;

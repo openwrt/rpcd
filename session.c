@@ -57,22 +57,26 @@ static const struct blobmsg_policy get_policy[__RPC_SG_MAX] = {
 
 enum {
 	RPC_SA_SID,
+	RPC_SA_SCOPE,
 	RPC_SA_OBJECTS,
 	__RPC_SA_MAX,
 };
 static const struct blobmsg_policy acl_policy[__RPC_SA_MAX] = {
 	[RPC_SA_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SA_SCOPE] = { .name = "scope", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SA_OBJECTS] = { .name = "objects", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 enum {
 	RPC_SP_SID,
+	RPC_SP_SCOPE,
 	RPC_SP_OBJECT,
 	RPC_SP_FUNCTION,
 	__RPC_SP_MAX,
 };
 static const struct blobmsg_policy perm_policy[__RPC_SP_MAX] = {
 	[RPC_SP_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SP_SCOPE] = { .name = "scope", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SP_OBJECT] = { .name = "object", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SP_FUNCTION] = { .name = "function", .type = BLOBMSG_TYPE_STRING },
 };
@@ -83,14 +87,14 @@ static const struct blobmsg_policy perm_policy[__RPC_SP_MAX] = {
  * equal to the method name, then work backwards as long as the AVL key still
  * matches its counterpart in the object name
  */
-#define uh_foreach_matching_acl_prefix(_acl, _ses, _obj, _func)			\
-	for (_acl = avl_find_le_element(&(_ses)->acls, _obj, _acl, avl);	\
-	     _acl;								\
-	     _acl = avl_is_first(&(ses)->acls, &(_acl)->avl) ? NULL :		\
+#define uh_foreach_matching_acl_prefix(_acl, _avl, _obj, _func)		\
+	for (_acl = avl_find_le_element(_avl, _obj, _acl, avl);			\
+	     _acl;														\
+	     _acl = avl_is_first(_avl, &(_acl)->avl) ? NULL :			\
 		    avl_prev_element((_acl), avl))
 
-#define uh_foreach_matching_acl(_acl, _ses, _obj, _func)			\
-	uh_foreach_matching_acl_prefix(_acl, _ses, _obj, _func)			\
+#define uh_foreach_matching_acl(_acl, _avl, _obj, _func)			\
+	uh_foreach_matching_acl_prefix(_acl, _avl, _obj, _func)			\
 		if (!strncmp((_acl)->object, _obj, (_acl)->sort_len) &&		\
 		    !fnmatch((_acl)->object, (_obj), FNM_NOESCAPE) &&		\
 		    !fnmatch((_acl)->function, (_func), FNM_NOESCAPE))
@@ -128,21 +132,35 @@ static void
 rpc_session_dump_acls(struct rpc_session *ses, struct blob_buf *b)
 {
 	struct rpc_session_acl *acl;
+	struct rpc_session_acl_scope *acl_scope;
 	const char *lastobj = NULL;
-	void *c = NULL;
+	const char *lastscope = NULL;
+	void *c = NULL, *d = NULL;
 
-	avl_for_each_element(&ses->acls, acl, avl) {
-		if (!lastobj || strcmp(acl->object, lastobj))
+	avl_for_each_element(&ses->acls, acl_scope, avl) {
+		if (!lastscope || strcmp(acl_scope->avl.key, lastscope))
 		{
-			if (c) blobmsg_close_array(b, c);
-			c = blobmsg_open_array(b, acl->object);
+			if (c) blobmsg_close_table(b, c);
+			c = blobmsg_open_table(b, acl_scope->avl.key);
 		}
 
-		blobmsg_add_string(b, NULL, acl->function);
-		lastobj = acl->object;
+		d = NULL;
+
+		avl_for_each_element(&acl_scope->acls, acl, avl) {
+			if (!lastobj || strcmp(acl->object, lastobj))
+			{
+				if (d) blobmsg_close_array(b, d);
+				d = blobmsg_open_array(b, acl->object);
+			}
+
+			blobmsg_add_string(b, NULL, acl->function);
+			lastobj = acl->object;
+		}
+
+		if (d) blobmsg_close_array(b, d);
 	}
 
-	if (c) blobmsg_close_array(b, c);
+	if (c) blobmsg_close_table(b, c);
 }
 
 static void
@@ -179,11 +197,18 @@ static void
 rpc_session_destroy(struct rpc_session *ses)
 {
 	struct rpc_session_acl *acl, *nacl;
+	struct rpc_session_acl_scope *acl_scope, *nacl_scope;
 	struct rpc_session_data *data, *ndata;
 
 	uloop_timeout_cancel(&ses->t);
-	avl_remove_all_elements(&ses->acls, acl, avl, nacl)
-		free(acl);
+
+	avl_for_each_element_safe(&ses->acls, acl_scope, avl, nacl_scope) {
+		avl_remove_all_elements(&acl_scope->acls, acl, avl, nacl)
+			free(acl);
+
+		avl_delete(&ses->acls, &acl_scope->avl);
+		free(acl_scope);
+	}
 
 	avl_remove_all_elements(&ses->data, data, avl, ndata)
 		free(data);
@@ -289,19 +314,36 @@ uh_id_len(const char *str)
 
 static int
 rpc_session_grant(struct rpc_session *ses, struct ubus_context *ctx,
-                  const char *object, const char *function)
+                  const char *scope, const char *object, const char *function)
 {
 	struct rpc_session_acl *acl;
-	char *new_obj, *new_func, *new_id;
+	struct rpc_session_acl_scope *acl_scope;
+	char *new_scope, *new_obj, *new_func, *new_id;
 	int id_len;
 
 	if (!object || !function)
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
-	uh_foreach_matching_acl_prefix(acl, ses, object, function) {
-		if (!strcmp(acl->object, object) &&
-		    !strcmp(acl->function, function))
-			return 0;
+	acl_scope = avl_find_element(&ses->acls, scope, acl_scope, avl);
+
+	if (acl_scope) {
+		uh_foreach_matching_acl_prefix(acl, &acl_scope->acls, object, function) {
+			if (!strcmp(acl->object, object) &&
+				!strcmp(acl->function, function))
+				return 0;
+		}
+	}
+
+	if (!acl_scope) {
+		acl_scope = calloc_a(sizeof(*acl_scope),
+		                     &new_scope, strlen(scope) + 1);
+
+		if (!acl_scope)
+			return UBUS_STATUS_UNKNOWN_ERROR;
+
+		acl_scope->avl.key = strcpy(new_scope, scope);
+		avl_init(&acl_scope->acls, avl_strcmp, true, NULL);
+		avl_insert(&ses->acls, &acl_scope->avl);
 	}
 
 	id_len = uh_id_len(object);
@@ -316,22 +358,30 @@ rpc_session_grant(struct rpc_session *ses, struct ubus_context *ctx,
 	acl->object = strcpy(new_obj, object);
 	acl->function = strcpy(new_func, function);
 	acl->avl.key = strncpy(new_id, object, id_len);
-	avl_insert(&ses->acls, &acl->avl);
+	avl_insert(&acl_scope->acls, &acl->avl);
 
 	return 0;
 }
 
 static int
 rpc_session_revoke(struct rpc_session *ses, struct ubus_context *ctx,
-                   const char *object, const char *function)
+                   const char *scope, const char *object, const char *function)
 {
 	struct rpc_session_acl *acl, *next;
+	struct rpc_session_acl_scope *acl_scope;
 	int id_len;
 	char *id;
 
+	acl_scope = avl_find_element(&ses->acls, scope, acl_scope, avl);
+
+	if (!acl_scope)
+		return 0;
+
 	if (!object && !function) {
-		avl_remove_all_elements(&ses->acls, acl, avl, next)
+		avl_remove_all_elements(&acl_scope->acls, acl, avl, next)
 			free(acl);
+		avl_delete(&ses->acls, &acl_scope->avl);
+		free(acl_scope);
 		return 0;
 	}
 
@@ -340,9 +390,9 @@ rpc_session_revoke(struct rpc_session *ses, struct ubus_context *ctx,
 	strncpy(id, object, id_len);
 	id[id_len] = 0;
 
-	acl = avl_find_element(&ses->acls, id, acl, avl);
+	acl = avl_find_element(&acl_scope->acls, id, acl, avl);
 	while (acl) {
-		if (!avl_is_last(&ses->acls, &acl->avl))
+		if (!avl_is_last(&acl_scope->acls, &acl->avl))
 			next = avl_next_element(acl, avl);
 		else
 			next = NULL;
@@ -352,10 +402,15 @@ rpc_session_revoke(struct rpc_session *ses, struct ubus_context *ctx,
 
 		if (!strcmp(acl->object, object) &&
 		    !strcmp(acl->function, function)) {
-			avl_delete(&ses->acls, &acl->avl);
+			avl_delete(&acl_scope->acls, &acl->avl);
 			free(acl);
 		}
 		acl = next;
+	}
+
+	if (avl_is_empty(&acl_scope->acls)) {
+		avl_delete(&ses->acls, &acl_scope->avl);
+		free(acl_scope);
 	}
 
 	return 0;
@@ -371,10 +426,11 @@ rpc_handle_acl(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__RPC_SA_MAX];
 	struct blob_attr *attr, *sattr;
 	const char *object, *function;
+	const char *scope = "ubus";
 	int rem1, rem2;
 
 	int (*cb)(struct rpc_session *ses, struct ubus_context *ctx,
-		  const char *object, const char *function);
+		  const char *scope, const char *object, const char *function);
 
 	blobmsg_parse(acl_policy, __RPC_SA_MAX, tb, blob_data(msg), blob_len(msg));
 
@@ -385,13 +441,16 @@ rpc_handle_acl(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!ses)
 		return UBUS_STATUS_NOT_FOUND;
 
+	if (tb[RPC_SA_SCOPE])
+		scope = blobmsg_data(tb[RPC_SA_SCOPE]);
+
 	if (!strcmp(method, "grant"))
 		cb = rpc_session_grant;
 	else
 		cb = rpc_session_revoke;
 
 	if (!tb[RPC_SA_OBJECTS])
-		return cb(ses, ctx, NULL, NULL);
+		return cb(ses, ctx, scope, NULL, NULL);
 
 	blobmsg_for_each_attr(attr, tb[RPC_SA_OBJECTS], rem1) {
 		if (blob_id(attr) != BLOBMSG_TYPE_ARRAY)
@@ -413,19 +472,25 @@ rpc_handle_acl(struct ubus_context *ctx, struct ubus_object *obj,
 		}
 
 		if (object && function)
-			cb(ses, ctx, object, function);
+			cb(ses, ctx, scope, object, function);
 	}
 
 	return 0;
 }
 
 static bool
-rpc_session_acl_allowed(struct rpc_session *ses, const char *obj, const char *fun)
+rpc_session_acl_allowed(struct rpc_session *ses, const char *scope,
+                        const char *obj, const char *fun)
 {
 	struct rpc_session_acl *acl;
+	struct rpc_session_acl_scope *acl_scope;
 
-	uh_foreach_matching_acl(acl, ses, obj, fun)
-		return true;
+	acl_scope = avl_find_element(&ses->acls, scope, acl_scope, avl);
+
+	if (acl_scope) {
+		uh_foreach_matching_acl(acl, &acl_scope->acls, obj, fun)
+			return true;
+	}
 
 	return false;
 }
@@ -437,6 +502,7 @@ rpc_handle_access(struct ubus_context *ctx, struct ubus_object *obj,
 {
 	struct rpc_session *ses;
 	struct blob_attr *tb[__RPC_SP_MAX];
+	const char *scope = "ubus";
 	bool allow;
 
 	blobmsg_parse(perm_policy, __RPC_SP_MAX, tb, blob_data(msg), blob_len(msg));
@@ -448,7 +514,10 @@ rpc_handle_access(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!ses)
 		return UBUS_STATUS_NOT_FOUND;
 
-	allow = rpc_session_acl_allowed(ses,
+	if (tb[RPC_SP_SCOPE])
+		scope = blobmsg_data(tb[RPC_SP_SCOPE]);
+
+	allow = rpc_session_acl_allowed(ses, scope,
 									blobmsg_data(tb[RPC_SP_OBJECT]),
 									blobmsg_data(tb[RPC_SP_FUNCTION]));
 
