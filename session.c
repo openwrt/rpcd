@@ -142,6 +142,7 @@ rpc_session_dump_acls(struct rpc_session *ses, struct blob_buf *b)
 		{
 			if (c) blobmsg_close_table(b, c);
 			c = blobmsg_open_table(b, acl_scope->avl.key);
+			lastobj = NULL;
 		}
 
 		d = NULL;
