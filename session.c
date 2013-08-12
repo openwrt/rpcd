@@ -709,3 +709,14 @@ int rpc_session_api_init(struct ubus_context *ctx)
 
 	return ubus_add_object(ctx, &obj);
 }
+
+bool rpc_session_access(const char *sid, const char *scope,
+                        const char *object, const char *function)
+{
+	struct rpc_session *ses = rpc_session_get(sid);
+
+	if (!ses)
+		return false;
+
+	return rpc_session_acl_allowed(ses, scope, object, function);
+}
