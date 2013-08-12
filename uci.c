@@ -17,6 +17,7 @@
  */
 
 #include "uci.h"
+#include "session.h"
 
 static struct blob_buf buf;
 static struct uci_context *cursor;
@@ -27,6 +28,7 @@ enum {
 	RPC_G_OPTION,
 	RPC_G_TYPE,
 	RPC_G_MATCH,
+	RPC_G_SESSION,
 	__RPC_G_MAX,
 };
 
@@ -36,6 +38,8 @@ static const struct blobmsg_policy rpc_uci_get_policy[__RPC_G_MAX] = {
 	[RPC_G_OPTION]  = { .name = "option",  .type = BLOBMSG_TYPE_STRING },
 	[RPC_G_TYPE]    = { .name = "type",    .type = BLOBMSG_TYPE_STRING },
 	[RPC_G_MATCH]   = { .name = "match",   .type = BLOBMSG_TYPE_TABLE  },
+	[RPC_G_SESSION] = { .name = "ubus_rpc_session",
+	                                       .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -43,6 +47,7 @@ enum {
 	RPC_A_TYPE,
 	RPC_A_NAME,
 	RPC_A_VALUES,
+	RPC_A_SESSION,
 	__RPC_A_MAX,
 };
 
@@ -51,6 +56,8 @@ static const struct blobmsg_policy rpc_uci_add_policy[__RPC_A_MAX] = {
 	[RPC_A_TYPE]    = { .name = "type",    .type = BLOBMSG_TYPE_STRING },
 	[RPC_A_NAME]    = { .name = "name",    .type = BLOBMSG_TYPE_STRING },
 	[RPC_A_VALUES]  = { .name = "values",  .type = BLOBMSG_TYPE_TABLE  },
+	[RPC_A_SESSION] = { .name = "ubus_rpc_session",
+	                                       .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -59,6 +66,7 @@ enum {
 	RPC_S_TYPE,
 	RPC_S_MATCH,
 	RPC_S_VALUES,
+	RPC_S_SESSION,
 	__RPC_S_MAX,
 };
 
@@ -68,6 +76,8 @@ static const struct blobmsg_policy rpc_uci_set_policy[__RPC_S_MAX] = {
 	[RPC_S_TYPE]    = { .name = "type",     .type = BLOBMSG_TYPE_STRING },
 	[RPC_S_MATCH]   = { .name = "match",    .type = BLOBMSG_TYPE_TABLE  },
 	[RPC_S_VALUES]  = { .name = "values",   .type = BLOBMSG_TYPE_TABLE  },
+	[RPC_S_SESSION] = { .name = "ubus_rpc_session",
+	                                        .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -77,6 +87,7 @@ enum {
 	RPC_D_MATCH,
 	RPC_D_OPTION,
 	RPC_D_OPTIONS,
+	RPC_D_SESSION,
 	__RPC_D_MAX,
 };
 
@@ -87,6 +98,8 @@ static const struct blobmsg_policy rpc_uci_delete_policy[__RPC_D_MAX] = {
 	[RPC_D_MATCH]   = { .name = "match",    .type = BLOBMSG_TYPE_TABLE  },
 	[RPC_D_OPTION]  = { .name = "option",   .type = BLOBMSG_TYPE_STRING },
 	[RPC_D_OPTIONS] = { .name = "options",  .type = BLOBMSG_TYPE_ARRAY  },
+	[RPC_D_SESSION] = { .name = "ubus_rpc_session",
+	                                        .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -94,6 +107,7 @@ enum {
 	RPC_R_SECTION,
 	RPC_R_OPTION,
 	RPC_R_NAME,
+	RPC_R_SESSION,
 	__RPC_R_MAX,
 };
 
@@ -102,26 +116,34 @@ static const struct blobmsg_policy rpc_uci_rename_policy[__RPC_R_MAX] = {
 	[RPC_R_SECTION] = { .name = "section",  .type = BLOBMSG_TYPE_STRING },
 	[RPC_R_OPTION]  = { .name = "option",   .type = BLOBMSG_TYPE_STRING },
 	[RPC_R_NAME]    = { .name = "name",     .type = BLOBMSG_TYPE_STRING },
+	[RPC_R_SESSION] = { .name = "ubus_rpc_session",
+	                                        .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
 	RPC_O_CONFIG,
 	RPC_O_SECTIONS,
+	RPC_O_SESSION,
 	__RPC_O_MAX,
 };
 
 static const struct blobmsg_policy rpc_uci_order_policy[__RPC_O_MAX] = {
 	[RPC_O_CONFIG]   = { .name = "config",   .type = BLOBMSG_TYPE_STRING },
 	[RPC_O_SECTIONS] = { .name = "sections", .type = BLOBMSG_TYPE_ARRAY  },
+	[RPC_O_SESSION]  = { .name = "ubus_rpc_session",
+	                                         .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
 	RPC_C_CONFIG,
+	RPC_C_SESSION,
 	__RPC_C_MAX,
 };
 
 static const struct blobmsg_policy rpc_uci_config_policy[__RPC_C_MAX] = {
 	[RPC_C_CONFIG]   = { .name = "config",  .type = BLOBMSG_TYPE_STRING },
+	[RPC_C_SESSION]  = { .name = "ubus_rpc_session",
+	                                        .type = BLOBMSG_TYPE_STRING },
 };
 
 /*
@@ -144,6 +166,36 @@ rpc_uci_status(void)
 	default:
 		return UBUS_STATUS_UNKNOWN_ERROR;
 	}
+}
+
+/*
+ * Test read access to given config. If the passed "sid" blob attribute pointer
+ * is NULL then the precedure was not invoked through the ubus-rpc so we do not
+ * perform access control and always assume true.
+ */
+static bool
+rpc_uci_read_access(struct blob_attr *sid, struct blob_attr *config)
+{
+	if (!sid)
+		return true;
+
+	return rpc_session_access(blobmsg_data(sid), "uci",
+	                          blobmsg_data(config), "read");
+}
+
+/*
+ * Test write access to given config. If the passed "sid" blob attribute pointer
+ * is NULL then the precedure was not invoked through the ubus-rpc so we do not
+ * perform access control and always assume true.
+ */
+static bool
+rpc_uci_write_access(struct blob_attr *sid, struct blob_attr *config)
+{
+	if (!sid)
+		return true;
+
+	return rpc_session_access(blobmsg_data(sid), "uci",
+	                          blobmsg_data(config), "write");
 }
 
 /*
@@ -423,6 +475,9 @@ rpc_uci_get(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb[RPC_G_CONFIG])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
+	if (!rpc_uci_read_access(tb[RPC_G_SESSION], tb[RPC_G_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	ptr.package = blobmsg_data(tb[RPC_G_CONFIG]);
 	uci_load(cursor, ptr.package, &p);
 
@@ -486,6 +541,9 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 
 	if (!tb[RPC_A_CONFIG] || !tb[RPC_A_TYPE])
 		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (!rpc_uci_write_access(tb[RPC_A_SESSION], tb[RPC_A_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_A_CONFIG]);
 
@@ -616,6 +674,9 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
 		(!tb[RPC_S_SECTION] && !tb[RPC_S_TYPE] && !tb[RPC_S_MATCH]))
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
+	if (!rpc_uci_write_access(tb[RPC_S_SESSION], tb[RPC_S_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	ptr.package = blobmsg_data(tb[RPC_S_CONFIG]);
 	uci_load(cursor, ptr.package, &p);
 
@@ -720,6 +781,9 @@ rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
 		(!tb[RPC_D_SECTION] && !tb[RPC_D_TYPE] && !tb[RPC_D_MATCH]))
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
+	if (!rpc_uci_write_access(tb[RPC_D_SESSION], tb[RPC_D_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	ptr.package = blobmsg_data(tb[RPC_D_CONFIG]);
 	uci_load(cursor, ptr.package, &p);
 
@@ -777,6 +841,9 @@ rpc_uci_rename(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb[RPC_R_CONFIG] || !tb[RPC_R_SECTION] || !tb[RPC_R_NAME])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
+	if (!rpc_uci_write_access(tb[RPC_R_SESSION], tb[RPC_R_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	ptr.package = blobmsg_data(tb[RPC_R_CONFIG]);
 	ptr.section = blobmsg_data(tb[RPC_R_SECTION]);
 	ptr.value   = blobmsg_data(tb[RPC_R_NAME]);
@@ -826,6 +893,9 @@ rpc_uci_order(struct ubus_context *ctx, struct ubus_object *obj,
 
 	if (!tb[RPC_O_CONFIG] || !tb[RPC_O_SECTIONS])
 		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (!rpc_uci_write_access(tb[RPC_O_SESSION], tb[RPC_O_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_O_CONFIG]);
 
@@ -909,6 +979,9 @@ rpc_uci_changes(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb[RPC_C_CONFIG])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
+	if (!rpc_uci_read_access(tb[RPC_C_SESSION], tb[RPC_C_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	uci_load(cursor, blobmsg_data(tb[RPC_C_CONFIG]), &p);
 
 	if (!p)
@@ -943,6 +1016,9 @@ rpc_uci_revert_commit(struct blob_attr *msg, bool commit)
 
 	if (!tb[RPC_C_CONFIG])
 		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (!rpc_uci_write_access(tb[RPC_C_SESSION], tb[RPC_C_CONFIG]))
+		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_C_CONFIG]);
 	uci_load(cursor, ptr.package, &p);
