@@ -1021,19 +1021,22 @@ rpc_uci_revert_commit(struct blob_attr *msg, bool commit)
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_C_CONFIG]);
-	uci_load(cursor, ptr.package, &p);
-
-	if (!p || uci_lookup_ptr(cursor, &ptr, NULL, true) || !ptr.p)
-		goto out;
 
 	if (commit)
-		uci_commit(cursor, &p, false);
-	else
-		uci_revert(cursor, &ptr);
+	{
+		uci_load(cursor, ptr.package, &p);
 
-out:
-	if (p)
-		uci_unload(cursor, p);
+		if (p)
+		{
+			uci_commit(cursor, &p, false);
+			uci_unload(cursor, p);
+		}
+	}
+	else
+	{
+		if (!uci_lookup_ptr(cursor, &ptr, NULL, true) && ptr.p)
+			uci_revert(cursor, &ptr);
+	}
 
 	return rpc_uci_status();
 }
