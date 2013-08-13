@@ -19,12 +19,16 @@
 #ifndef __RPC_LUCI2_H
 #define __RPC_LUCI2_H
 
+#include <libubox/blobmsg_json.h>
 #include <libubus.h>
 #include <uci.h>
 
 /* limit of log size buffer */
 #define RPC_LUCI2_MAX_LOGSIZE		(128 * 1024)
 #define RPC_LUCI2_DEF_LOGSIZE       (16 * 1024)
+
+/* location of menu definitions */
+#define RPC_LUCI2_MENU_FILES        "/usr/share/luci2/menu.d/*.json"
 
 int rpc_luci2_api_init(struct ubus_context *ctx);
 

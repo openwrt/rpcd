@@ -29,9 +29,11 @@
 #include <dirent.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <glob.h>
 
 #include "luci2.h"
 #include "exec.h"
+#include "session.h"
 
 static struct blob_buf buf;
 static struct uci_context *cursor;
@@ -116,6 +118,16 @@ enum {
 
 static const struct blobmsg_policy rpc_upgrade_policy[__RPC_UPGRADE_MAX] = {
 	[RPC_UPGRADE_KEEP] = { .name = "keep",    .type = BLOBMSG_TYPE_BOOL },
+};
+
+enum {
+	RPC_MENU_SESSION,
+	__RPC_MENU_MAX
+};
+
+static const struct blobmsg_policy rpc_menu_policy[__RPC_MENU_MAX] = {
+	[RPC_MENU_SESSION] = { .name = "ubus_rpc_session",
+	                                          .type = BLOBMSG_TYPE_STRING },
 };
 
 
@@ -1959,6 +1971,87 @@ rpc_luci2_opkg_config_set(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 
+static bool
+menu_access(struct blob_attr *sid, struct blob_attr *acls)
+{
+	int rem;
+	struct blob_attr *acl;
+
+	blobmsg_for_each_attr(acl, acls, rem)
+	{
+		if (!rpc_session_access(blobmsg_data(sid), "luci-ui",
+		                        blobmsg_data(acl), "read"))
+			return false;
+	}
+
+	return true;
+}
+
+static int
+rpc_luci2_ui_menu(struct ubus_context *ctx, struct ubus_object *obj,
+                  struct ubus_request_data *req, const char *method,
+                  struct blob_attr *msg)
+{
+	int i, rem, rem2;
+	glob_t gl;
+	struct blob_buf menu = { 0 };
+	struct blob_attr *entry, *attr;
+	struct blob_attr *tb[__RPC_MENU_MAX];
+	bool access;
+	void *c;
+
+	blobmsg_parse(rpc_menu_policy, __RPC_MENU_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_MENU_SESSION])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+
+	blob_buf_init(&buf, 0);
+	c = blobmsg_open_table(&buf, "menu");
+
+	if (!glob(RPC_LUCI2_MENU_FILES, 0, NULL, &gl))
+	{
+		for (i = 0; i < gl.gl_pathc; i++)
+		{
+			blob_buf_init(&menu, 0);
+
+			if (!blobmsg_add_json_from_file(&menu, gl.gl_pathv[i]))
+				continue;
+
+			blob_for_each_attr(entry, menu.head, rem)
+			{
+				access = true;
+
+				blobmsg_for_each_attr(attr, entry, rem2)
+				{
+					if (blob_id(attr) != BLOBMSG_TYPE_ARRAY)
+						continue;
+
+					if (strcmp(blobmsg_name(attr), "acls"))
+						continue;
+
+					access = menu_access(tb[RPC_MENU_SESSION], attr);
+					break;
+				}
+
+				if (!access)
+					continue;
+
+				blobmsg_add_blob(&buf, entry);
+			}
+		}
+
+		globfree(&gl);
+	}
+
+	blobmsg_close_table(&buf, c);
+
+	ubus_send_reply(ctx, req, buf.head);
+	return 0;
+}
+
+
 int rpc_luci2_api_init(struct ubus_context *ctx)
 {
 	int rv = 0;
@@ -2060,6 +2153,21 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 		.n_methods = ARRAY_SIZE(luci2_opkg_methods),
 	};
 
+
+	static const struct ubus_method luci2_ui_methods[] = {
+		UBUS_METHOD_NOARG("menu",            rpc_luci2_ui_menu)
+	};
+
+	static struct ubus_object_type luci2_ui_type =
+		UBUS_OBJECT_TYPE("luci-rpc-luci2-ui", luci2_ui_methods);
+
+	static struct ubus_object ui_obj = {
+		.name = "luci2.ui",
+		.type = &luci2_ui_type,
+		.methods = luci2_ui_methods,
+		.n_methods = ARRAY_SIZE(luci2_ui_methods),
+	};
+
 	cursor = uci_alloc_context();
 
 	if (!cursor)
@@ -2068,6 +2176,7 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 	rv |= ubus_add_object(ctx, &system_obj);
 	rv |= ubus_add_object(ctx, &network_obj);
 	rv |= ubus_add_object(ctx, &opkg_obj);
+	rv |= ubus_add_object(ctx, &ui_obj);
 
 	return rv;
 }

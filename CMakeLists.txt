@@ -11,7 +11,7 @@ IF(APPLE)
 ENDIF()
 
 ADD_EXECUTABLE(luci-rpcd main.c exec.c session.c file.c uci.c iwinfo.c luci2.c)
-TARGET_LINK_LIBRARIES(luci-rpcd ubox ubus uci iwinfo)
+TARGET_LINK_LIBRARIES(luci-rpcd ubox ubus uci iwinfo blobmsg_json)
 
 SET(CMAKE_INSTALL_PREFIX /usr)
 
