@@ -1972,19 +1972,32 @@ rpc_luci2_opkg_config_set(struct ubus_context *ctx, struct ubus_object *obj,
 
 
 static bool
-menu_access(struct blob_attr *sid, struct blob_attr *acls)
+menu_access(struct blob_attr *sid, struct blob_attr *acls, struct blob_buf *e)
 {
 	int rem;
 	struct blob_attr *acl;
+	bool rv = true;
+	void *c;
+
+	c = blobmsg_open_table(e, "write");
 
 	blobmsg_for_each_attr(acl, acls, rem)
 	{
 		if (!rpc_session_access(blobmsg_data(sid), "luci-ui",
 		                        blobmsg_data(acl), "read"))
-			return false;
+		{
+			rv = false;
+			break;
+		}
+
+		blobmsg_add_u8(e, blobmsg_data(acl),
+		               rpc_session_access(blobmsg_data(sid), "luci-ui",
+		                                  blobmsg_data(acl), "write"));
 	}
 
-	return true;
+	blobmsg_close_table(e, c);
+
+	return rv;
 }
 
 static int
@@ -1995,10 +2008,11 @@ rpc_luci2_ui_menu(struct ubus_context *ctx, struct ubus_object *obj,
 	int i, rem, rem2;
 	glob_t gl;
 	struct blob_buf menu = { 0 };
+	struct blob_buf item = { 0 };
 	struct blob_attr *entry, *attr;
 	struct blob_attr *tb[__RPC_MENU_MAX];
 	bool access;
-	void *c;
+	void *c, *d;
 
 	blobmsg_parse(rpc_menu_policy, __RPC_MENU_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -2017,29 +2031,35 @@ rpc_luci2_ui_menu(struct ubus_context *ctx, struct ubus_object *obj,
 			blob_buf_init(&menu, 0);
 
 			if (!blobmsg_add_json_from_file(&menu, gl.gl_pathv[i]))
-				continue;
+				goto skip;
 
 			blob_for_each_attr(entry, menu.head, rem)
 			{
 				access = true;
 
+				blob_buf_init(&item, 0);
+				d = blobmsg_open_table(&item, blobmsg_name(entry));
+
 				blobmsg_for_each_attr(attr, entry, rem2)
 				{
-					if (blob_id(attr) != BLOBMSG_TYPE_ARRAY)
-						continue;
-
-					if (strcmp(blobmsg_name(attr), "acls"))
-						continue;
-
-					access = menu_access(tb[RPC_MENU_SESSION], attr);
-					break;
+					if (blob_id(attr) == BLOBMSG_TYPE_ARRAY &&
+					    !strcmp(blobmsg_name(attr), "acls"))
+						access = menu_access(tb[RPC_MENU_SESSION], attr, &item);
+					else
+						blobmsg_add_blob(&item, attr);
 				}
 
-				if (!access)
-					continue;
+				blobmsg_close_table(&item, d);
 
-				blobmsg_add_blob(&buf, entry);
+				if (access)
+					blob_for_each_attr(attr, item.head, rem2)
+						blobmsg_add_blob(&buf, attr);
+
+				blob_buf_free(&item);
 			}
+
+skip:
+			blob_buf_free(&menu);
 		}
 
 		globfree(&gl);
