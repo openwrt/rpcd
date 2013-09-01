@@ -17,6 +17,7 @@
  */
 
 #include "plugin.h"
+#include "exec.h"
 
 static struct blob_buf buf;
 
@@ -51,92 +52,133 @@ rpc_plugin_lookup_plugin(struct ubus_context *ctx, struct ubus_object *obj,
 	return c.found;
 }
 
+struct call_context {
+	char path[PATH_MAX];
+	const char *argv[4];
+	char *method;
+	char *input;
+	json_tokener *tok;
+	json_object *obj;
+	bool input_done;
+	bool output_done;
+};
+
+static int
+rpc_plugin_call_stdin_cb(struct ustream *s, void *priv)
+{
+	struct call_context *c = priv;
+
+	if (!c->input_done)
+	{
+		ustream_write(s, c->input, strlen(c->input), false);
+		c->input_done = true;
+	}
+
+	return 0;
+}
+
+static int
+rpc_plugin_call_stdout_cb(struct blob_buf *blob, char *buf, int len, void *priv)
+{
+	struct call_context *c = priv;
+
+	if (!c->output_done)
+	{
+		c->obj = json_tokener_parse_ex(c->tok, buf, len);
+
+		if (json_tokener_get_error(c->tok) != json_tokener_continue)
+			c->output_done = true;
+	}
+
+	return len;
+}
+
+static int
+rpc_plugin_call_finish_cb(struct blob_buf *blob, int stat, void *priv)
+{
+	struct call_context *c = priv;
+	int rv = UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (json_tokener_get_error(c->tok) == json_tokener_success)
+	{
+		if (c->obj)
+		{
+			if (json_object_get_type(c->obj) == json_type_object ||
+			    json_object_get_type(c->obj) == json_type_array)
+			{
+				blobmsg_add_json_element(blob, NULL, c->obj);
+				rv = UBUS_STATUS_OK;
+			}
+
+			json_object_put(c->obj);
+		}
+		else
+		{
+			rv = UBUS_STATUS_NO_DATA;
+		}
+	}
+
+	json_tokener_free(c->tok);
+
+	free(c->input);
+	free(c->method);
+
+	return rv;
+}
+
 static int
 rpc_plugin_call(struct ubus_context *ctx, struct ubus_object *obj,
                 struct ubus_request_data *req, const char *method,
                 struct blob_attr *msg)
 {
-	pid_t pid;
-	struct stat s;
-	int rv, fd, in_fds[2], out_fds[2];
-	char *input, *plugin, *meth, output[4096] = { 0 }, path[PATH_MAX] = { 0 };
+	int rv = UBUS_STATUS_UNKNOWN_ERROR;
+	struct call_context *c;
+	char *plugin;
 
-	meth = strdup(method);
-	input = blobmsg_format_json(msg, true);
-	plugin = path + sprintf(path, "%s/", RPC_PLUGIN_DIRECTORY);
+	c = calloc(1, sizeof(*c));
+
+	if (!c)
+		goto fail;
+
+	c->method = strdup(method);
+	c->input = blobmsg_format_json(msg, true);
+	c->tok = json_tokener_new();
+
+	if (!c->method || !c->input || !c->tok)
+		goto fail;
+
+	plugin = c->path + sprintf(c->path, "%s/", RPC_PLUGIN_DIRECTORY);
 
 	if (!rpc_plugin_lookup_plugin(ctx, obj, plugin))
-		return UBUS_STATUS_NOT_FOUND;
-
-	if (stat(path, &s) || !(s.st_mode & S_IXUSR))
-		return UBUS_STATUS_NOT_FOUND;
-
-	if (pipe(in_fds) || pipe(out_fds))
-		return UBUS_STATUS_UNKNOWN_ERROR;
-
-	switch ((pid = fork()))
 	{
-	case -1:
-		return UBUS_STATUS_UNKNOWN_ERROR;
-
-	case 0:
-		uloop_done();
-
-		fd = open("/dev/null", O_RDWR);
-
-		if (fd > -1)
-		{
-			dup2(fd, 2);
-
-			if (fd > 2)
-				close(fd);
-		}
-
-		dup2(in_fds[0], 0);
-		dup2(out_fds[1], 1);
-
-		close(in_fds[0]);
-		close(in_fds[1]);
-		close(out_fds[0]);
-		close(out_fds[1]);
-
-		if (execl(path, plugin, "call", meth, NULL))
-			return UBUS_STATUS_UNKNOWN_ERROR;
-
-	default:
-		rv = UBUS_STATUS_NO_DATA;
-
-		if (input)
-		{
-			write(in_fds[1], input, strlen(input));
-			free(input);
-		}
-
-		close(in_fds[0]);
-		close(in_fds[1]);
-
-		if (read(out_fds[0], output, sizeof(output) - 1) > 0)
-		{
-			blob_buf_init(&buf, 0);
-
-			if (!blobmsg_add_json_from_string(&buf, output))
-				rv = UBUS_STATUS_INVALID_ARGUMENT;
-
-			rv = UBUS_STATUS_OK;
-		}
-
-		close(out_fds[0]);
-		close(out_fds[1]);
-
-		waitpid(pid, NULL, 0);
-
-		if (!rv)
-			ubus_send_reply(ctx, req, buf.head);
-
-		free(meth);
-
-		return rv;
+		rv = UBUS_STATUS_NOT_FOUND;
+		goto fail;
 	}
+
+	c->argv[0] = c->path;
+	c->argv[1] = "call";
+	c->argv[2] = c->method;
+
+	return rpc_exec(c->argv, rpc_plugin_call_stdin_cb,
+	                rpc_plugin_call_stdout_cb, NULL, rpc_plugin_call_finish_cb,
+	                c, ctx, req);
+
+fail:
+	if (c)
+	{
+		if (c->method)
+			free(c->method);
+
+		if (c->input)
+			free(c->input);
+
+		if (c->tok)
+			json_tokener_free(c->tok);
+
+		free(c);
+	}
+
+	return rv;
 }
 
 static bool
@@ -206,18 +248,46 @@ rpc_plugin_parse_signature(struct blob_attr *sig, struct ubus_method *method)
 }
 
 static struct ubus_object *
-rpc_plugin_parse_plugin(const char *name, const char *listbuf)
+rpc_plugin_parse_plugin(const char *name, int fd)
 {
-	int rem, n_method;
+	int len, rem, n_method;
 	struct blob_attr *cur;
 	struct ubus_method *methods;
 	struct ubus_object_type *obj_type;
 	struct ubus_object *obj;
+	char outbuf[1024];
+
+	json_tokener *tok;
+	json_object *jsobj;
 
 	blob_buf_init(&buf, 0);
 
-	if (!blobmsg_add_json_from_string(&buf, listbuf))
+	tok = json_tokener_new();
+
+	if (!tok)
 		return NULL;
+
+	while ((len = read(fd, outbuf, sizeof(outbuf))) > 0)
+	{
+		jsobj = json_tokener_parse_ex(tok, outbuf, len);
+
+		if (json_tokener_get_error(tok) == json_tokener_continue)
+			continue;
+
+		if (json_tokener_get_error(tok) != json_tokener_success)
+			break;
+
+		if (jsobj)
+		{
+			if (json_object_get_type(jsobj) == json_type_object)
+				blobmsg_add_object(&buf, jsobj);
+
+			json_object_put(jsobj);
+			break;
+		}
+	}
+
+	json_tokener_free(tok);
 
 	n_method = 0;
 
@@ -268,9 +338,8 @@ static int
 rpc_plugin_register(struct ubus_context *ctx, const char *path)
 {
 	pid_t pid;
-	int rv, fd, fds[2];
+	int rv = UBUS_STATUS_NO_DATA, fd, fds[2];
 	const char *name;
-	char listbuf[4096] = { 0 };
 	struct ubus_object *plugin;
 
 	name = strrchr(path, '/');
@@ -307,12 +376,7 @@ rpc_plugin_register(struct ubus_context *ctx, const char *path)
 			return UBUS_STATUS_UNKNOWN_ERROR;
 
 	default:
-		rv = 0;
-
-		if (read(fds[0], listbuf, sizeof(listbuf) - 1) <= 0)
-			goto out;
-
-		plugin = rpc_plugin_parse_plugin(name + 1, listbuf);
+		plugin = rpc_plugin_parse_plugin(name + 1, fds[0]);
 
 		if (!plugin)
 			goto out;
