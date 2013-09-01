@@ -94,6 +94,12 @@ rpc_plugin_call_stdout_cb(struct blob_buf *blob, char *buf, int len, void *priv)
 }
 
 static int
+rpc_plugin_call_stderr_cb(struct blob_buf *blob, char *buf, int len, void *priv)
+{
+	return len;
+}
+
+static int
 rpc_plugin_call_finish_cb(struct blob_buf *blob, int stat, void *priv)
 {
 	struct call_context *c = priv;
@@ -160,8 +166,8 @@ rpc_plugin_call(struct ubus_context *ctx, struct ubus_object *obj,
 	c->argv[2] = c->method;
 
 	return rpc_exec(c->argv, rpc_plugin_call_stdin_cb,
-	                rpc_plugin_call_stdout_cb, NULL, rpc_plugin_call_finish_cb,
-	                c, ctx, req);
+	                rpc_plugin_call_stdout_cb, rpc_plugin_call_stderr_cb,
+	                rpc_plugin_call_finish_cb, c, ctx, req);
 
 fail:
 	if (c)
