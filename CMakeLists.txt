@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.6)
 
-PROJECT(luci-rpcd C)
+PROJECT(rpcd C)
 ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations)
 
 OPTION(FILE_SUPPORT "File plugin support" ON)
@@ -16,8 +16,8 @@ ENDIF()
 
 FIND_LIBRARY(json NAMES json-c json)
 
-ADD_EXECUTABLE(luci-rpcd main.c exec.c session.c uci.c plugin.c)
-TARGET_LINK_LIBRARIES(luci-rpcd ubox ubus uci dl blobmsg_json ${json})
+ADD_EXECUTABLE(rpcd main.c exec.c session.c uci.c plugin.c)
+TARGET_LINK_LIBRARIES(rpcd ubox ubus uci dl blobmsg_json ${json})
 
 SET(PLUGINS "")
 
@@ -42,7 +42,7 @@ IF (IWINFO_SUPPORT)
   SET_TARGET_PROPERTIES(iwinfo_plugin PROPERTIES OUTPUT_NAME iwinfo PREFIX "")
 ENDIF()
 
-INSTALL(TARGETS luci-rpcd ${PLUGINS}
+INSTALL(TARGETS rpcd ${PLUGINS}
 	RUNTIME DESTINATION sbin
 	LIBRARY DESTINATION lib
 )

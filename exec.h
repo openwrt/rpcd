@@ -1,5 +1,5 @@
 /*
- * luci-rpcd - LuCI UBUS RPC server
+ * rpcd - UBUS RPC server
  *
  *   Copyright (C) 2013 Jo-Philipp Wich <jow@openwrt.org>
  *

@@ -1,5 +1,5 @@
 /*
- * luci-rpcd - LuCI UBUS RPC server
+ * rpcd - UBUS RPC server
  *
  *   Copyright (C) 2013 Jo-Philipp Wich <jow@openwrt.org>
  *
@@ -38,10 +38,10 @@
 #include "session.h"
 
 /* location of plugin executables */
-#define RPC_PLUGIN_DIRECTORY        "/usr/libexec/luci-rpcd"
+#define RPC_PLUGIN_DIRECTORY        "/usr/libexec/rpcd"
 
 /* location of plugin libraries */
-#define RPC_LIBRARY_DIRECTORY       "/usr/lib/luci-rpcd"
+#define RPC_LIBRARY_DIRECTORY       "/usr/lib/rpcd"
 
 struct rpc_daemon_ops {
     bool (*access)(const char *sid, const char *scope,
