@@ -26,7 +26,6 @@
 #include "session.h"
 #include "file.h"
 #include "uci.h"
-#include "iwinfo.h"
 #include "luci2.h"
 #include "plugin.h"
 
@@ -65,7 +64,6 @@ int main(int argc, char **argv)
 	rpc_session_api_init(ctx);
 	rpc_file_api_init(ctx);
 	rpc_uci_api_init(ctx);
-	rpc_iwinfo_api_init(ctx);
 	rpc_luci2_api_init(ctx);
 	rpc_plugin_api_init(ctx);
 

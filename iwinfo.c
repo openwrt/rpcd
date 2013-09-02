@@ -16,10 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
-#include <dirent.h>
-
 #include "iwinfo.h"
+#include "plugin.h"
 
 static struct blob_buf buf;
 static const struct iwinfo_ops *iw;
@@ -622,7 +620,8 @@ rpc_iwinfo_devices(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 
-int rpc_iwinfo_api_init(struct ubus_context *ctx)
+static int
+rpc_iwinfo_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method iwinfo_methods[] = {
 		{ .name = "devices", .handler = rpc_iwinfo_devices },
@@ -646,3 +645,7 @@ int rpc_iwinfo_api_init(struct ubus_context *ctx)
 
 	return ubus_add_object(ctx, &obj);
 }
+
+const struct rpc_plugin rpc_plugin = {
+	.init = rpc_iwinfo_api_init
+};

@@ -19,10 +19,10 @@
 #ifndef __RPC_IWINFO_H
 #define __RPC_IWINFO_H
 
+#include <sys/types.h>
+#include <dirent.h>
 #include <libubus.h>
 #include <iwinfo.h>
 #include <iwinfo/utils.h>
-
-int rpc_iwinfo_api_init(struct ubus_context *ctx);
 
 #endif
