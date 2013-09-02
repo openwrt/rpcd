@@ -21,6 +21,7 @@
 
 #define _GNU_SOURCE /* asprintf() */
 
+#include <dlfcn.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -33,8 +34,29 @@
 #include <libubox/blobmsg_json.h>
 #include <libubus.h>
 
+#include "exec.h"
+#include "session.h"
+
 /* location of plugin executables */
-#define RPC_PLUGIN_DIRECTORY        "/usr/lib/luci-rpcd/plugins"
+#define RPC_PLUGIN_DIRECTORY        "/usr/libexec/luci-rpcd"
+
+/* location of plugin libraries */
+#define RPC_LIBRARY_DIRECTORY       "/usr/lib/luci-rpcd"
+
+struct rpc_daemon_ops {
+    bool (*access)(const char *sid, const char *scope,
+                   const char *object, const char *function);
+    int (*exec)(const char **args,
+                rpc_exec_write_cb_t in, rpc_exec_read_cb_t out,
+                rpc_exec_read_cb_t err, rpc_exec_done_cb_t end,
+                void *priv, struct ubus_context *ctx,
+                struct ubus_request_data *req);
+};
+
+struct rpc_plugin {
+    struct list_head list;
+    int (*init)(const struct rpc_daemon_ops *ops, struct ubus_context *ctx);
+};
 
 int rpc_plugin_api_init(struct ubus_context *ctx);
 

@@ -17,7 +17,6 @@
  */
 
 #include "plugin.h"
-#include "exec.h"
 
 static struct blob_buf buf;
 
@@ -254,7 +253,7 @@ rpc_plugin_parse_signature(struct blob_attr *sig, struct ubus_method *method)
 }
 
 static struct ubus_object *
-rpc_plugin_parse_plugin(const char *name, int fd)
+rpc_plugin_parse_exec(const char *name, int fd)
 {
 	int len, rem, n_method;
 	struct blob_attr *cur;
@@ -341,7 +340,7 @@ rpc_plugin_parse_plugin(const char *name, int fd)
 }
 
 static int
-rpc_plugin_register(struct ubus_context *ctx, const char *path)
+rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 {
 	pid_t pid;
 	int rv = UBUS_STATUS_NO_DATA, fd, fds[2];
@@ -382,7 +381,7 @@ rpc_plugin_register(struct ubus_context *ctx, const char *path)
 			return UBUS_STATUS_UNKNOWN_ERROR;
 
 	default:
-		plugin = rpc_plugin_parse_plugin(name + 1, fds[0]);
+		plugin = rpc_plugin_parse_exec(name + 1, fds[0]);
 
 		if (!plugin)
 			goto out;
@@ -398,6 +397,35 @@ out:
 	}
 }
 
+
+static LIST_HEAD(plugins);
+
+static const struct rpc_daemon_ops ops = {
+	.access = rpc_session_access,
+	.exec   = rpc_exec,
+};
+
+static int
+rpc_plugin_register_library(struct ubus_context *ctx, const char *path)
+{
+	struct rpc_plugin *p;
+	void *dlh;
+
+	dlh = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
+
+	if (!dlh)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	p = dlsym(dlh, "rpc_plugin");
+
+	if (!p)
+		return UBUS_STATUS_NOT_FOUND;
+
+	list_add(&p->list, &plugins);
+
+	return p->init(&ops, ctx);
+}
+
 int rpc_plugin_api_init(struct ubus_context *ctx)
 {
 	DIR *d;
@@ -406,22 +434,37 @@ int rpc_plugin_api_init(struct ubus_context *ctx)
 	struct dirent *e;
 	char path[PATH_MAX];
 
-	d = opendir(RPC_PLUGIN_DIRECTORY);
-
-	if (!d)
-		return UBUS_STATUS_NOT_FOUND;
-
-	while ((e = readdir(d)) != NULL)
+	if ((d = opendir(RPC_PLUGIN_DIRECTORY)) != NULL)
 	{
-		snprintf(path, sizeof(path) - 1, RPC_PLUGIN_DIRECTORY "/%s", e->d_name);
+		while ((e = readdir(d)) != NULL)
+		{
+			snprintf(path, sizeof(path) - 1,
+			         RPC_PLUGIN_DIRECTORY "/%s", e->d_name);
 
-		if (stat(path, &s) || !S_ISREG(s.st_mode) || !(s.st_mode & S_IXUSR))
-			continue;
+			if (stat(path, &s) || !S_ISREG(s.st_mode) || !(s.st_mode & S_IXUSR))
+				continue;
 
-		rv |= rpc_plugin_register(ctx, path);
+			rv |= rpc_plugin_register_exec(ctx, path);
+		}
+
+		closedir(d);
 	}
 
-	closedir(d);
+	if ((d = opendir(RPC_LIBRARY_DIRECTORY)) != NULL)
+	{
+		while ((e = readdir(d)) != NULL)
+		{
+			snprintf(path, sizeof(path) - 1,
+			         RPC_LIBRARY_DIRECTORY "/%s", e->d_name);
+
+			if (stat(path, &s) || !S_ISREG(s.st_mode))
+				continue;
+
+			rv |= rpc_plugin_register_library(ctx, path);
+		}
+
+		closedir(d);
+	}
 
 	return rv;
 }
