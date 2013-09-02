@@ -16,8 +16,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "iwinfo.h"
+#include <sys/types.h>
+#include <dirent.h>
+#include <libubus.h>
+#include <iwinfo.h>
+#include <iwinfo/utils.h>
+
 #include "plugin.h"
+
 
 static struct blob_buf buf;
 static const struct iwinfo_ops *iw;

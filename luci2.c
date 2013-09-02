@@ -30,9 +30,19 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <glob.h>
+#include <libubox/blobmsg_json.h>
+#include <libubus.h>
+#include <uci.h>
 
-#include "luci2.h"
 #include "plugin.h"
+
+/* limit of log size buffer */
+#define RPC_LUCI2_MAX_LOGSIZE		(128 * 1024)
+#define RPC_LUCI2_DEF_LOGSIZE       (16 * 1024)
+
+/* location of menu definitions */
+#define RPC_LUCI2_MENU_FILES        "/usr/share/luci2/menu.d/*.json" /* */
+
 
 static const struct rpc_daemon_ops *ops;
 
