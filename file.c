@@ -16,17 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-
 #include "file.h"
+#include "plugin.h"
 
 static struct blob_buf buf;
 
@@ -546,7 +537,8 @@ rpc_file_exec(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 
-int rpc_file_api_init(struct ubus_context *ctx)
+static int
+rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method file_methods[] = {
 		UBUS_METHOD("read",    rpc_file_read,  rpc_file_policy),
@@ -568,3 +560,7 @@ int rpc_file_api_init(struct ubus_context *ctx)
 
 	return ubus_add_object(ctx, &obj);
 }
+
+const struct rpc_plugin rpc_plugin = {
+	.init = rpc_file_api_init
+};

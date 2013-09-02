@@ -19,6 +19,15 @@
 #ifndef __RPC_FILE_H
 #define __RPC_FILE_H
 
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <libubus.h>
 #include <libubox/blobmsg.h>
 #include <libubox/ustream.h>
@@ -56,7 +65,5 @@ struct rpc_file_exec_context {
 	char *err;
 	int stat;
 };
-
-int rpc_file_api_init(struct ubus_context *ctx);
 
 #endif

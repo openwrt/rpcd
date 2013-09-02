@@ -24,7 +24,6 @@
 #include <signal.h>
 
 #include "session.h"
-#include "file.h"
 #include "uci.h"
 #include "luci2.h"
 #include "plugin.h"
@@ -62,7 +61,6 @@ int main(int argc, char **argv)
 	ubus_add_uloop(ctx);
 
 	rpc_session_api_init(ctx);
-	rpc_file_api_init(ctx);
 	rpc_uci_api_init(ctx);
 	rpc_luci2_api_init(ctx);
 	rpc_plugin_api_init(ctx);
