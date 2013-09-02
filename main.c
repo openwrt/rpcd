@@ -25,7 +25,6 @@
 
 #include "session.h"
 #include "uci.h"
-#include "luci2.h"
 #include "plugin.h"
 
 static struct ubus_context *ctx;
@@ -62,7 +61,6 @@ int main(int argc, char **argv)
 
 	rpc_session_api_init(ctx);
 	rpc_uci_api_init(ctx);
-	rpc_luci2_api_init(ctx);
 	rpc_plugin_api_init(ctx);
 
 	uloop_run();

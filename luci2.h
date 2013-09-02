@@ -30,6 +30,4 @@
 /* location of menu definitions */
 #define RPC_LUCI2_MENU_FILES        "/usr/share/luci2/menu.d/*.json"
 
-int rpc_luci2_api_init(struct ubus_context *ctx);
-
 #endif

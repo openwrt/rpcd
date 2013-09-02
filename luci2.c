@@ -32,8 +32,9 @@
 #include <glob.h>
 
 #include "luci2.h"
-#include "exec.h"
-#include "session.h"
+#include "plugin.h"
+
+static const struct rpc_daemon_ops *ops;
 
 static struct blob_buf buf;
 static struct uci_context *cursor;
@@ -964,7 +965,7 @@ rpc_luci2_upgrade_test(struct ubus_context *ctx, struct ubus_object *obj,
                        struct blob_attr *msg)
 {
 	const char *cmd[4] = { "sysupgrade", "--test", "/tmp/firmware.bin", NULL };
-	return rpc_exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
+	return ops->exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
 }
 
 static int
@@ -994,7 +995,7 @@ rpc_luci2_backup_restore(struct ubus_context *ctx, struct ubus_object *obj,
 	const char *cmd[4] = { "sysupgrade", "--restore-backup",
 	                       "/tmp/backup.tar.gz", NULL };
 
-	return rpc_exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
+	return ops->exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
 }
 
 static int
@@ -1110,8 +1111,8 @@ rpc_luci2_backup_list(struct ubus_context *ctx, struct ubus_object *obj,
 
 	memset(state, 0, sizeof(*state));
 
-	return rpc_exec(cmd, NULL, backup_parse_list, NULL, backup_finish_list,
-	                state, ctx, req);
+	return ops->exec(cmd, NULL, backup_parse_list, NULL, backup_finish_list,
+	                 state, ctx, req);
 }
 
 static int
@@ -1848,8 +1849,8 @@ opkg_exec_list(const char *action, struct blob_attr *msg,
 	if (state->req_count <= 0 || state->req_count > 100)
 		state->req_count = 100;
 
-	return rpc_exec(cmd, NULL, opkg_parse_list, NULL, opkg_finish_list,
-	                state, ctx, req);
+	return ops->exec(cmd, NULL, opkg_parse_list, NULL, opkg_finish_list,
+	                 state, ctx, req);
 }
 
 
@@ -1883,7 +1884,7 @@ rpc_luci2_opkg_update(struct ubus_context *ctx, struct ubus_object *obj,
                       struct blob_attr *msg)
 {
 	const char *cmd[3] = { "opkg", "update", NULL };
-	return rpc_exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
+	return ops->exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
 }
 
 static int
@@ -1903,7 +1904,7 @@ rpc_luci2_opkg_install(struct ubus_context *ctx, struct ubus_object *obj,
 
 	cmd[3] = blobmsg_data(tb[RPC_OP_PACKAGE]);
 
-	return rpc_exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
+	return ops->exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
 }
 
 static int
@@ -1923,7 +1924,7 @@ rpc_luci2_opkg_remove(struct ubus_context *ctx, struct ubus_object *obj,
 
 	cmd[3] = blobmsg_data(tb[RPC_OP_PACKAGE]);
 
-	return rpc_exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
+	return ops->exec(cmd, NULL, NULL, NULL, NULL, NULL, ctx, req);
 }
 
 static int
@@ -1987,16 +1988,16 @@ menu_access(struct blob_attr *sid, struct blob_attr *acls, struct blob_buf *e)
 
 	blobmsg_for_each_attr(acl, acls, rem)
 	{
-		if (!rpc_session_access(blobmsg_data(sid), "luci-ui",
-		                        blobmsg_data(acl), "read"))
+		if (!ops->access(blobmsg_data(sid), "luci-ui",
+		                 blobmsg_data(acl), "read"))
 		{
 			rv = false;
 			break;
 		}
 
 		blobmsg_add_u8(e, blobmsg_data(acl),
-		               rpc_session_access(blobmsg_data(sid), "luci-ui",
-		                                  blobmsg_data(acl), "write"));
+		               ops->access(blobmsg_data(sid), "luci-ui",
+		                           blobmsg_data(acl), "write"));
 	}
 
 	blobmsg_close_table(e, c);
@@ -2076,7 +2077,8 @@ skip:
 }
 
 
-int rpc_luci2_api_init(struct ubus_context *ctx)
+static int
+rpc_luci2_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	int rv = 0;
 
@@ -2197,6 +2199,8 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 	if (!cursor)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
+	ops = o;
+
 	rv |= ubus_add_object(ctx, &system_obj);
 	rv |= ubus_add_object(ctx, &network_obj);
 	rv |= ubus_add_object(ctx, &opkg_obj);
@@ -2204,3 +2208,7 @@ int rpc_luci2_api_init(struct ubus_context *ctx)
 
 	return rv;
 }
+
+const struct rpc_plugin rpc_plugin = {
+	.init = rpc_luci2_api_init
+};
