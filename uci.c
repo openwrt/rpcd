@@ -169,6 +169,28 @@ rpc_uci_status(void)
 }
 
 /*
+ * Setup per-session delta save directory. If the passed "sid" blob attribute
+ * pointer is NULL then the precedure was not invoked through the ubus-rpc so
+ * we do not perform session isolation and use the default save directory.
+ */
+static void
+rpc_uci_set_savedir(struct blob_attr *sid)
+{
+	char path[PATH_MAX];
+
+	if (!sid)
+	{
+		uci_set_savedir(cursor, "/tmp/.uci");
+		return;
+	}
+
+	snprintf(path, sizeof(path) - 1,
+	         "/tmp/.uci-rpc-%s", (char *)blobmsg_data(sid));
+
+	uci_set_savedir(cursor, path);
+}
+
+/*
  * Test read access to given config. If the passed "sid" blob attribute pointer
  * is NULL then the precedure was not invoked through the ubus-rpc so we do not
  * perform access control and always assume true.
@@ -176,6 +198,8 @@ rpc_uci_status(void)
 static bool
 rpc_uci_read_access(struct blob_attr *sid, struct blob_attr *config)
 {
+	rpc_uci_set_savedir(sid);
+
 	if (!sid)
 		return true;
 
@@ -191,6 +215,8 @@ rpc_uci_read_access(struct blob_attr *sid, struct blob_attr *config)
 static bool
 rpc_uci_write_access(struct blob_attr *sid, struct blob_attr *config)
 {
+	rpc_uci_set_savedir(sid);
+
 	if (!sid)
 		return true;
 
@@ -1085,6 +1111,69 @@ out:
 }
 
 
+/*
+ * Remove given delta save directory (if any).
+ */
+static void
+rpc_uci_purge_savedir(const char *path)
+{
+	DIR *d;
+	struct stat s;
+	struct dirent *e;
+	char file[PATH_MAX];
+
+	if (stat(path, &s) || !S_ISDIR(s.st_mode))
+		return;
+
+	if ((d = opendir(path)) != NULL)
+	{
+		while ((e = readdir(d)) != NULL)
+		{
+			snprintf(file, sizeof(file) - 1, "%s/%s", path, e->d_name);
+
+			if (stat(file, &s) || !S_ISREG(s.st_mode))
+				continue;
+
+			unlink(file);
+		}
+
+		closedir(d);
+
+		rmdir(path);
+	}
+}
+
+/*
+ * Session destroy callback to purge associated delta directory.
+ */
+static void
+rpc_uci_purge_savedir_cb(struct rpc_session *ses, void *priv)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path) - 1, "/tmp/.uci-rpc-%s", ses->id);
+	rpc_uci_purge_savedir(path);
+}
+
+/*
+ * Removes all delta directories which match the /tmp/.uci-rpc-* pattern.
+ * This is used to clean up garbage when starting rpcd.
+ */
+static void
+rpc_uci_purge_savedirs(void)
+{
+	int i;
+	glob_t gl;
+
+	if (!glob("/tmp/.uci-rpc-*", 0, NULL, &gl))
+	{
+		for (i = 0; i < gl.gl_pathc; i++)
+			rpc_uci_purge_savedir(gl.gl_pathv[i]);
+
+		globfree(&gl);
+	}
+}
+
 int rpc_uci_api_init(struct ubus_context *ctx)
 {
 	static const struct ubus_method uci_methods[] = {
@@ -1110,10 +1199,17 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 		.n_methods = ARRAY_SIZE(uci_methods),
 	};
 
+	static struct rpc_session_cb cb = {
+		.cb = rpc_uci_purge_savedir_cb
+	};
+
 	cursor = uci_alloc_context();
 
 	if (!cursor)
 		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	rpc_uci_purge_savedirs();
+	rpc_session_destroy_cb(&cb);
 
 	return ubus_add_object(ctx, &obj);
 }

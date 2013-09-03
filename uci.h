@@ -19,6 +19,13 @@
 #ifndef __RPC_UCI_H
 #define __RPC_UCI_H
 
+#include <glob.h>
+#include <limits.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #include <inttypes.h>
 #include <libubus.h>
 #include <uci.h>
