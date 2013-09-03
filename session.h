@@ -59,4 +59,13 @@ int rpc_session_api_init(struct ubus_context *ctx);
 bool rpc_session_access(const char *sid, const char *scope,
                         const char *object, const char *function);
 
+struct rpc_session_cb {
+	struct list_head list;
+	void (*cb)(struct rpc_session *, void *);
+	void *priv;
+};
+
+void rpc_session_create_cb(struct rpc_session_cb *cb);
+void rpc_session_destroy_cb(struct rpc_session_cb *cb);
+
 #endif

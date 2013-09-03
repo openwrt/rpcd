@@ -27,6 +27,9 @@
 static struct avl_tree sessions;
 static struct blob_buf buf;
 
+static LIST_HEAD(create_callbacks);
+static LIST_HEAD(destroy_callbacks);
+
 static const struct blobmsg_policy new_policy = {
 	.name = "timeout", .type = BLOBMSG_TYPE_INT32
 };
@@ -200,6 +203,10 @@ rpc_session_destroy(struct rpc_session *ses)
 	struct rpc_session_acl *acl, *nacl;
 	struct rpc_session_acl_scope *acl_scope, *nacl_scope;
 	struct rpc_session_data *data, *ndata;
+	struct rpc_session_cb *cb;
+
+	list_for_each_entry(cb, &destroy_callbacks, list)
+		cb->cb(ses, cb->priv);
 
 	uloop_timeout_cancel(&ses->t);
 
@@ -230,6 +237,7 @@ static struct rpc_session *
 rpc_session_create(int timeout)
 {
 	struct rpc_session *ses;
+	struct rpc_session_cb *cb;
 
 	ses = calloc(1, sizeof(*ses));
 	if (!ses)
@@ -245,6 +253,9 @@ rpc_session_create(int timeout)
 
 	ses->t.cb = rpc_session_timeout;
 	rpc_touch_session(ses);
+
+	list_for_each_entry(cb, &create_callbacks, list)
+		cb->cb(ses, cb->priv);
 
 	return ses;
 }
@@ -719,4 +730,16 @@ bool rpc_session_access(const char *sid, const char *scope,
 		return false;
 
 	return rpc_session_acl_allowed(ses, scope, object, function);
+}
+
+void rpc_session_create_cb(struct rpc_session_cb *cb)
+{
+	if (cb && cb->cb)
+		list_add(&cb->list, &create_callbacks);
+}
+
+void rpc_session_destroy_cb(struct rpc_session_cb *cb)
+{
+	if (cb && cb->cb)
+		list_add(&cb->list, &destroy_callbacks);
 }
