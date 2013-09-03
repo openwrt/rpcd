@@ -401,8 +401,10 @@ out:
 static LIST_HEAD(plugins);
 
 static const struct rpc_daemon_ops ops = {
-	.access = rpc_session_access,
-	.exec   = rpc_exec,
+	.session_access     = rpc_session_access,
+	.session_create_cb  = rpc_session_create_cb,
+	.session_destroy_cb = rpc_session_destroy_cb,
+	.exec               = rpc_exec,
 };
 
 static int

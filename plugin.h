@@ -44,8 +44,10 @@
 #define RPC_LIBRARY_DIRECTORY       "/usr/lib/rpcd"
 
 struct rpc_daemon_ops {
-    bool (*access)(const char *sid, const char *scope,
-                   const char *object, const char *function);
+    bool (*session_access)(const char *sid, const char *scope,
+                           const char *object, const char *function);
+    void (*session_create_cb)(struct rpc_session_cb *cb);
+    void (*session_destroy_cb)(struct rpc_session_cb *cb);
     int (*exec)(const char **args,
                 rpc_exec_write_cb_t in, rpc_exec_read_cb_t out,
                 rpc_exec_read_cb_t err, rpc_exec_done_cb_t end,
