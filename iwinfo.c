@@ -22,7 +22,7 @@
 #include <iwinfo.h>
 #include <iwinfo/utils.h>
 
-#include "plugin.h"
+#include <rpcd/plugin.h>
 
 
 static struct blob_buf buf;

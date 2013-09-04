@@ -34,7 +34,7 @@
 #include <libubus.h>
 #include <uci.h>
 
-#include "plugin.h"
+#include <rpcd/plugin.h>
 
 /* limit of log size buffer */
 #define RPC_LUCI2_MAX_LOGSIZE		(128 * 1024)

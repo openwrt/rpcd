@@ -23,9 +23,9 @@
 #include <libubus.h>
 #include <signal.h>
 
-#include "session.h"
-#include "uci.h"
-#include "plugin.h"
+#include <rpcd/session.h>
+#include <rpcd/uci.h>
+#include <rpcd/plugin.h>
 
 static struct ubus_context *ctx;
 

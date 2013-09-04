@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "plugin.h"
+#include <rpcd/plugin.h>
 
 static struct blob_buf buf;
 

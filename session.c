@@ -22,7 +22,7 @@
 #include <libubus.h>
 #include <fnmatch.h>
 
-#include "session.h"
+#include <rpcd/session.h>
 
 static struct avl_tree sessions;
 static struct blob_buf buf;

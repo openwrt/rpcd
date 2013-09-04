@@ -26,7 +26,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-#include "exec.h"
+#include <rpcd/exec.h>
 
 static int
 rpc_errno_status(void)

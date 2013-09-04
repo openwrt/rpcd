@@ -16,8 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "uci.h"
-#include "session.h"
+#include <rpcd/uci.h>
+#include <rpcd/session.h>
 
 static struct blob_buf buf;
 static struct uci_context *cursor;

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.6)
 
 PROJECT(rpcd C)
-ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations)
+ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations -Iinclude)
 
 OPTION(FILE_SUPPORT "File plugin support" ON)
 OPTION(LUCI2_SUPPORT "LuCI2 plugin support" ON)

@@ -29,7 +29,7 @@
 #include <libubox/blobmsg.h>
 #include <libubox/ustream.h>
 
-#include "plugin.h"
+#include <rpcd/plugin.h>
 
 /* limit of sys & proc files */
 #define RPC_FILE_MIN_SIZE		(128)
