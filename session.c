@@ -84,6 +84,22 @@ static const struct blobmsg_policy perm_policy[__RPC_SP_MAX] = {
 	[RPC_SP_FUNCTION] = { .name = "function", .type = BLOBMSG_TYPE_STRING },
 };
 
+enum {
+	RPC_DUMP_SID,
+	RPC_DUMP_TIMEOUT,
+	RPC_DUMP_EXPIRES,
+	RPC_DUMP_ACLS,
+	RPC_DUMP_DATA,
+	__RPC_DUMP_MAX,
+};
+static const struct blobmsg_policy dump_policy[__RPC_DUMP_MAX] = {
+	[RPC_DUMP_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_DUMP_TIMEOUT] = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
+	[RPC_DUMP_EXPIRES] = { .name = "expires", .type = BLOBMSG_TYPE_INT32 },
+	[RPC_DUMP_ACLS] = { .name = "acls", .type = BLOBMSG_TYPE_TABLE },
+	[RPC_DUMP_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
+};
+
 /*
  * Keys in the AVL tree contain all pattern characters up to the first wildcard.
  * To look up entries, start with the last entry that has a key less than or
@@ -168,9 +184,7 @@ rpc_session_dump_acls(struct rpc_session *ses, struct blob_buf *b)
 }
 
 static void
-rpc_session_dump(struct rpc_session *ses,
-					 struct ubus_context *ctx,
-					 struct ubus_request_data *req)
+rpc_session_to_blob(struct rpc_session *ses)
 {
 	void *c;
 
@@ -187,6 +201,13 @@ rpc_session_dump(struct rpc_session *ses,
 	c = blobmsg_open_table(&buf, "data");
 	rpc_session_dump_data(ses, &buf);
 	blobmsg_close_table(&buf, c);
+}
+
+static void
+rpc_session_dump(struct rpc_session *ses, struct ubus_context *ctx,
+                 struct ubus_request_data *req)
+{
+	rpc_session_to_blob(ses);
 
 	ubus_send_reply(ctx, req, buf.head);
 }
@@ -234,24 +255,42 @@ static void rpc_session_timeout(struct uloop_timeout *t)
 }
 
 static struct rpc_session *
+rpc_session_new(void)
+{
+	struct rpc_session *ses;
+
+	ses = calloc(1, sizeof(*ses));
+
+	if (!ses)
+		return NULL;
+
+	ses->avl.key = ses->id;
+
+	avl_init(&ses->acls, avl_strcmp, true, NULL);
+	avl_init(&ses->data, avl_strcmp, false, NULL);
+
+	ses->t.cb = rpc_session_timeout;
+
+	return ses;
+}
+
+static struct rpc_session *
 rpc_session_create(int timeout)
 {
 	struct rpc_session *ses;
 	struct rpc_session_cb *cb;
 
-	ses = calloc(1, sizeof(*ses));
+	ses = rpc_session_new();
+
 	if (!ses)
 		return NULL;
 
-	ses->timeout  = timeout;
-	ses->avl.key  = ses->id;
 	rpc_random(ses->id);
 
-	avl_insert(&sessions, &ses->avl);
-	avl_init(&ses->acls, avl_strcmp, true, NULL);
-	avl_init(&ses->data, avl_strcmp, false, NULL);
+	ses->timeout = timeout;
 
-	ses->t.cb = rpc_session_timeout;
+	avl_insert(&sessions, &ses->avl);
+
 	rpc_touch_session(ses);
 
 	list_for_each_entry(cb, &create_callbacks, list)
@@ -540,13 +579,32 @@ rpc_handle_access(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+static void
+rpc_session_set(struct rpc_session *ses, const char *key, struct blob_attr *val)
+{
+	struct rpc_session_data *data;
+
+	data = avl_find_element(&ses->data, key, data, avl);
+	if (data) {
+		avl_delete(&ses->data, &data->avl);
+		free(data);
+	}
+
+	data = calloc(1, sizeof(*data) + blob_pad_len(val));
+	if (!data)
+		return;
+
+	memcpy(data->attr, val, blob_pad_len(val));
+	data->avl.key = blobmsg_name(data->attr);
+	avl_insert(&ses->data, &data->avl);
+}
+
 static int
 rpc_handle_set(struct ubus_context *ctx, struct ubus_object *obj,
                struct ubus_request_data *req, const char *method,
                struct blob_attr *msg)
 {
 	struct rpc_session *ses;
-	struct rpc_session_data *data;
 	struct blob_attr *tb[__RPC_SA_MAX];
 	struct blob_attr *attr;
 	int rem;
@@ -564,19 +622,7 @@ rpc_handle_set(struct ubus_context *ctx, struct ubus_object *obj,
 		if (!blobmsg_name(attr)[0])
 			continue;
 
-		data = avl_find_element(&ses->data, blobmsg_name(attr), data, avl);
-		if (data) {
-			avl_delete(&ses->data, &data->avl);
-			free(data);
-		}
-
-		data = calloc(1, sizeof(*data) + blob_pad_len(attr));
-		if (!data)
-			break;
-
-		memcpy(data->attr, attr, blob_pad_len(attr));
-		data->avl.key = blobmsg_name(data->attr);
-		avl_insert(&ses->data, &data->avl);
+		rpc_session_set(ses, blobmsg_name(attr), attr);
 	}
 
 	return 0;
@@ -692,6 +738,134 @@ rpc_handle_destroy(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+
+static bool
+rpc_validate_sid(const char *id)
+{
+	if (!id)
+		return false;
+
+	if (strlen(id) != RPC_SID_LEN)
+		return false;
+
+	while (*id)
+		if (!isxdigit(*id++))
+			return false;
+
+	return true;
+}
+
+static int
+rpc_blob_to_file(const char *path, struct blob_attr *attr)
+{
+	int fd, len;
+
+	fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+
+	if (fd < 0)
+		return fd;
+
+	len = write(fd, attr, blob_pad_len(attr));
+
+	close(fd);
+
+	if (len != blob_pad_len(attr))
+	{
+		unlink(path);
+		return -1;
+	}
+
+	return len;
+}
+
+static struct blob_attr *
+rpc_blob_from_file(const char *path)
+{
+	int fd = -1, len;
+	struct stat s;
+	struct blob_attr head, *attr = NULL;
+
+	if (stat(path, &s) || !S_ISREG(s.st_mode))
+		return NULL;
+
+	fd = open(path, O_RDONLY);
+
+	if (fd < 0)
+		goto fail;
+
+	len = read(fd, &head, sizeof(head));
+
+	if (len != sizeof(head) || blob_pad_len(&head) != s.st_size)
+		goto fail;
+
+	attr = calloc(1, s.st_size);
+
+	if (!attr)
+		goto fail;
+
+	memcpy(attr, &head, sizeof(head));
+
+	len += read(fd, (char *)attr + sizeof(head), s.st_size - sizeof(head));
+
+	if (len != blob_pad_len(&head))
+		goto fail;
+
+	return attr;
+
+fail:
+	if (fd >= 0)
+		close(fd);
+
+	if (attr)
+		free(attr);
+
+	return NULL;
+}
+
+static bool
+rpc_session_from_blob(struct blob_attr *attr)
+{
+	int i, rem, rem2, rem3;
+	struct rpc_session *ses;
+	struct blob_attr *tb[__RPC_DUMP_MAX], *scope, *object, *function;
+
+	blobmsg_parse(dump_policy, __RPC_DUMP_MAX, tb,
+	              blob_data(attr), blob_len(attr));
+
+	for (i = 0; i < __RPC_DUMP_MAX; i++)
+		if (!tb[i])
+			return false;
+
+	ses = rpc_session_new();
+
+	if (!ses)
+		return false;
+
+	memcpy(ses->id, blobmsg_data(tb[RPC_DUMP_SID]), RPC_SID_LEN);
+
+	ses->timeout = blobmsg_get_u32(tb[RPC_DUMP_TIMEOUT]);
+
+	blobmsg_for_each_attr(scope, tb[RPC_DUMP_ACLS], rem) {
+		blobmsg_for_each_attr(object, scope, rem2) {
+			blobmsg_for_each_attr(function, object, rem3) {
+				rpc_session_grant(ses, NULL, blobmsg_name(scope),
+				                             blobmsg_name(object),
+				                             blobmsg_data(function));
+			}
+		}
+	}
+
+	blobmsg_for_each_attr(object, tb[RPC_DUMP_DATA], rem) {
+		rpc_session_set(ses, blobmsg_name(object), object);
+	}
+
+	avl_insert(&sessions, &ses->avl);
+
+	uloop_timeout_set(&ses->t, blobmsg_get_u32(tb[RPC_DUMP_EXPIRES]) * 1000);
+
+	return true;
+}
+
 int rpc_session_api_init(struct ubus_context *ctx)
 {
 	static const struct ubus_method session_methods[] = {
@@ -742,4 +916,52 @@ void rpc_session_destroy_cb(struct rpc_session_cb *cb)
 {
 	if (cb && cb->cb)
 		list_add(&cb->list, &destroy_callbacks);
+}
+
+void rpc_session_freeze(void)
+{
+	struct stat s;
+	struct rpc_session *ses;
+	char path[PATH_MAX];
+
+	if (stat(RPC_SESSION_DIRECTORY, &s))
+		mkdir(RPC_SESSION_DIRECTORY, 0700);
+
+	avl_for_each_element(&sessions, ses, avl) {
+		snprintf(path, sizeof(path) - 1, RPC_SESSION_DIRECTORY "/%s", ses->id);
+		rpc_session_to_blob(ses);
+		rpc_blob_to_file(path, buf.head);
+	}
+}
+
+void rpc_session_thaw(void)
+{
+	DIR *d;
+	char path[PATH_MAX];
+	struct dirent *e;
+	struct blob_attr *attr;
+
+	d = opendir(RPC_SESSION_DIRECTORY);
+
+	if (!d)
+		return;
+
+	while ((e = readdir(d)) != NULL) {
+		if (!rpc_validate_sid(e->d_name))
+			continue;
+
+		snprintf(path, sizeof(path) - 1,
+		         RPC_SESSION_DIRECTORY "/%s", e->d_name);
+
+		attr = rpc_blob_from_file(path);
+
+		if (attr) {
+			rpc_session_from_blob(attr);
+			free(attr);
+		}
+
+		unlink(path);
+	}
+
+	closedir(d);
 }

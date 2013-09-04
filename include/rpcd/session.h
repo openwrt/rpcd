@@ -20,11 +20,19 @@
 #ifndef __RPC_SESSION_H
 #define __RPC_SESSION_H
 
+#include <ctype.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #include <libubox/avl.h>
 #include <libubox/blobmsg_json.h>
 
 #define RPC_SID_LEN	32
 #define RPC_DEFAULT_SESSION_TIMEOUT	300
+#define RPC_SESSION_DIRECTORY	"/var/run/rpcd"
 
 struct rpc_session {
 	struct avl_node avl;
@@ -67,5 +75,8 @@ struct rpc_session_cb {
 
 void rpc_session_create_cb(struct rpc_session_cb *cb);
 void rpc_session_destroy_cb(struct rpc_session_cb *cb);
+
+void rpc_session_freeze(void);
+void rpc_session_thaw(void);
 
 #endif
