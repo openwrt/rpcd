@@ -26,8 +26,34 @@
 #include <rpcd/session.h>
 #include <rpcd/uci.h>
 #include <rpcd/plugin.h>
+#include <rpcd/exec.h>
 
 static struct ubus_context *ctx;
+static bool respawn = false;
+
+static void
+handle_signal(int sig)
+{
+	rpc_session_freeze();
+	uloop_cancelled = true;
+	respawn = (sig == SIGHUP);
+}
+
+static void
+exec_self(int argc, char **argv)
+{
+	int i;
+	const char *cmd = rpc_exec_lookup(argv[0]);
+	char **args = calloc(argc + 1, sizeof(char *));
+
+	if (!cmd || !args)
+		return;
+
+	for (i = 0; i < argc; i++)
+		args[i] = argv[i];
+
+	execv(cmd, (char * const *)args);
+}
 
 int main(int argc, char **argv)
 {
@@ -45,9 +71,8 @@ int main(int argc, char **argv)
 	}
 
 	signal(SIGPIPE, SIG_IGN);
-
-	argc -= optind;
-	argv += optind;
+	signal(SIGHUP,  handle_signal);
+	signal(SIGUSR1, handle_signal);
 
 	uloop_init();
 
@@ -63,9 +88,14 @@ int main(int argc, char **argv)
 	rpc_uci_api_init(ctx);
 	rpc_plugin_api_init(ctx);
 
+	rpc_session_thaw();
+
 	uloop_run();
 	ubus_free(ctx);
 	uloop_done();
+
+	if (respawn)
+		exec_self(argc, argv);
 
 	return 0;
 }

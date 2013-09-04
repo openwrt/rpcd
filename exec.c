@@ -50,7 +50,7 @@ rpc_errno_status(void)
 	}
 }
 
-static const char *
+const char *
 rpc_exec_lookup(const char *cmd)
 {
 	struct stat s;

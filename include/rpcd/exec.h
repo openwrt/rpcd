@@ -78,6 +78,8 @@ struct rpc_exec_context {
 	rpc_exec_done_cb_t finish_cb;
 };
 
+const char *rpc_exec_lookup(const char *cmd);
+
 int rpc_exec(const char **args, rpc_exec_write_cb_t in,
              rpc_exec_read_cb_t out, rpc_exec_read_cb_t err,
              rpc_exec_done_cb_t end, void *priv, struct ubus_context *ctx,
