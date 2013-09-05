@@ -30,7 +30,12 @@
 #include <libubus.h>
 #include <uci.h>
 
-#define RPC_UCI_SAVEDIR_PREFIX  "/var/run/rpcd/uci-"
+#define RPC_UCI_DIR_PREFIX	"/var/run/rpcd"
+#define RPC_UCI_SAVEDIR_PREFIX	RPC_UCI_DIR_PREFIX "/uci-"
+#define RPC_SNAPSHOT_FILES	RPC_UCI_DIR_PREFIX "/snapshot-files/"
+#define RPC_SNAPSHOT_DELTA	RPC_UCI_DIR_PREFIX "/snapshot-delta/"
+#define RPC_UCI_DIR		"/etc/config/"
+#define RPC_APPLY_TIMEOUT	60
 
 int rpc_uci_api_init(struct ubus_context *ctx);
 

@@ -16,6 +16,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <libgen.h>
+#include <glob.h>
+
 #include <libubox/blobmsg.h>
 #include <libubox/blobmsg_json.h>
 
@@ -24,6 +27,9 @@
 
 static struct blob_buf buf;
 static struct uci_context *cursor;
+static struct uloop_timeout apply_timer;
+static struct ubus_context *apply_ctx;
+static bool apply_running;
 
 enum {
 	RPC_G_CONFIG,
@@ -146,6 +152,30 @@ enum {
 static const struct blobmsg_policy rpc_uci_config_policy[__RPC_C_MAX] = {
 	[RPC_C_CONFIG]   = { .name = "config",  .type = BLOBMSG_TYPE_STRING },
 	[RPC_C_SESSION]  = { .name = "ubus_rpc_session",
+	                                        .type = BLOBMSG_TYPE_STRING },
+};
+
+enum {
+	RPC_T_COMMIT,
+	RPC_T_TIMEOUT,
+	RPC_T_SESSION,
+	__RPC_T_MAX,
+};
+
+static const struct blobmsg_policy rpc_uci_apply_policy[__RPC_T_MAX] = {
+	[RPC_T_COMMIT]   = { .name = "commit",  .type = BLOBMSG_TYPE_BOOL },
+	[RPC_T_TIMEOUT]  = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
+	[RPC_T_SESSION]  = { .name = "ubus_rpc_session",
+	                                        .type = BLOBMSG_TYPE_STRING },
+};
+
+enum {
+	RPC_B_SESSION,
+	__RPC_B_MAX,
+};
+
+static const struct blobmsg_policy rpc_uci_rollback_policy[__RPC_B_MAX] = {
+	[RPC_B_SESSION]  = { .name = "ubus_rpc_session",
 	                                        .type = BLOBMSG_TYPE_STRING },
 };
 
@@ -1060,6 +1090,9 @@ rpc_uci_revert_commit(struct ubus_context *ctx, struct blob_attr *msg, bool comm
 	struct uci_package *p = NULL;
 	struct uci_ptr ptr = { 0 };
 
+	if (!apply_running)
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	blobmsg_parse(rpc_uci_config_policy, __RPC_C_MAX, tb,
 	              blob_data(msg), blob_len(msg));
 
@@ -1167,6 +1200,242 @@ rpc_uci_purge_dir(const char *path)
 	}
 }
 
+static int
+rpc_uci_apply_config(struct ubus_context *ctx, char *config)
+{
+	struct uci_package *p = NULL;
+	struct uci_ptr ptr = { 0 };
+
+	ptr.package = config;
+	uci_load(cursor, ptr.package, &p);
+
+	if (p) {
+		uci_commit(cursor, &p, false);
+		uci_unload(cursor, p);
+	}
+	rpc_uci_trigger_event(ctx, config);
+
+	return 0;
+}
+
+static void
+rpc_uci_copy_file(const char *src, const char *target, const char *file)
+{
+	char tmp[256];
+	FILE *in, *out;
+
+	snprintf(tmp, sizeof(tmp), "%s%s", src, file);
+	in = fopen(tmp, "rb");
+	snprintf(tmp, sizeof(tmp), "%s%s", target, file);
+	out = fopen(tmp, "wb+");
+	if (in && out)
+		while (!feof(in)) {
+			int len = fread(tmp, 1, sizeof(tmp), in);
+
+			if(len > 0)
+				fwrite(tmp, 1, len, out);
+		}
+	if(in)
+		fclose(in);
+	if(out)
+		fclose(out);
+}
+
+static void
+rpc_uci_do_rollback(struct ubus_context *ctx, const char *sid, glob_t *gl)
+{
+	int i;
+	char tmp[PATH_MAX];
+
+	if (sid) {
+		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", sid);
+		mkdir(tmp, 0700);
+	}
+
+	for (i = 0; i < gl->gl_pathc; i++) {
+		char *config = basename(gl->gl_pathv[i]);
+
+		if (*config == '.')
+			continue;
+
+		rpc_uci_copy_file(RPC_SNAPSHOT_FILES, RPC_UCI_DIR, config);
+		rpc_uci_apply_config(ctx, config);
+		if (sid)
+			rpc_uci_copy_file(RPC_SNAPSHOT_DELTA, tmp, config);
+	}
+
+	rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
+	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
+
+	uloop_timeout_cancel(&apply_timer);
+	apply_running = false;
+	apply_ctx = NULL;
+}
+
+static void
+rpc_uci_apply_timeout(struct uloop_timeout *t)
+{
+	glob_t gl;
+	char tmp[PATH_MAX];
+
+	snprintf(tmp, sizeof(tmp), "%s/*", RPC_SNAPSHOT_FILES);
+	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
+		return;
+
+	rpc_uci_do_rollback(apply_ctx, NULL, &gl);
+}
+
+static int
+rpc_uci_apply_access(const char *sid, glob_t *gl)
+{
+	struct stat s;
+	int i, c = 0;
+
+	if (gl->gl_pathc < 3)
+		return UBUS_STATUS_NO_DATA;
+
+	for (i = 0; i < gl->gl_pathc; i++) {
+		char *config = basename(gl->gl_pathv[i]);
+
+		if (*config == '.')
+			continue;
+		if (stat(gl->gl_pathv[i], &s) || !s.st_size)
+			continue;
+		if (!rpc_session_access(sid, "uci", config, "write"))
+			return UBUS_STATUS_PERMISSION_DENIED;
+		c++;
+	}
+
+	if (!c)
+		return UBUS_STATUS_NO_DATA;
+
+	return 0;
+}
+
+static int
+rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
+              struct ubus_request_data *req, const char *method,
+              struct blob_attr *msg)
+{
+	struct blob_attr *tb[__RPC_T_MAX];
+	int timeout = RPC_APPLY_TIMEOUT;
+	char tmp[PATH_MAX];
+	bool commit = false;
+	int ret, i;
+	char *sid;
+	glob_t gl;
+
+	blobmsg_parse(rpc_uci_apply_policy, __RPC_T_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (tb[RPC_T_COMMIT])
+		commit = blobmsg_get_bool(tb[RPC_T_COMMIT]);
+
+	if (apply_running && !commit)
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	if (!tb[RPC_T_SESSION])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	sid = blobmsg_data(tb[RPC_T_SESSION]);
+
+	if (tb[RPC_T_TIMEOUT])
+		timeout = blobmsg_get_u32(tb[RPC_T_TIMEOUT]);
+
+	rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
+	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
+
+	if (!apply_running) {
+		mkdir(RPC_SNAPSHOT_FILES, 0700);
+		mkdir(RPC_SNAPSHOT_DELTA, 0700);
+
+		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/*", sid);
+		if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
+			return -1;
+
+		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", sid);
+
+		ret = rpc_uci_apply_access(sid, &gl);
+		if (ret) {
+			globfree(&gl);
+			return ret;
+		}
+
+		for (i = 0; i < gl.gl_pathc; i++) {
+			char *config = basename(gl.gl_pathv[i]);
+			struct stat s;
+
+			if (*config == '.')
+				continue;
+
+			if (stat(gl.gl_pathv[i], &s) || !s.st_size)
+				continue;
+
+			rpc_uci_copy_file(RPC_UCI_DIR, RPC_SNAPSHOT_FILES, config);
+			rpc_uci_copy_file(tmp, RPC_SNAPSHOT_DELTA, config);
+			rpc_uci_apply_config(ctx, config);
+		}
+
+		globfree(&gl);
+
+		apply_running = true;
+		apply_timer.cb = rpc_uci_apply_timeout;
+		uloop_timeout_set(&apply_timer, timeout * 1000);
+		apply_ctx = ctx;
+	}
+
+	if (apply_running && commit) {
+		rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
+		rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
+
+		uloop_timeout_cancel(&apply_timer);
+		apply_running = false;
+		apply_ctx = NULL;
+	}
+
+	return 0;
+}
+
+static int
+rpc_uci_rollback(struct ubus_context *ctx, struct ubus_object *obj,
+                 struct ubus_request_data *req, const char *method,
+                 struct blob_attr *msg)
+{
+	struct blob_attr *tb[__RPC_B_MAX];
+	char tmp[PATH_MAX];
+	glob_t gl;
+	char *sid;
+	int ret;
+
+	blobmsg_parse(rpc_uci_rollback_policy, __RPC_B_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!apply_running)
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	if (!tb[RPC_B_SESSION])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	sid = blobmsg_data(tb[RPC_B_SESSION]);
+
+	snprintf(tmp, sizeof(tmp), "%s/*", RPC_SNAPSHOT_FILES);
+	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
+		return -1;
+
+	ret = rpc_uci_apply_access(sid, &gl);
+	if (ret) {
+		globfree(&gl);
+		return ret;
+	}
+
+	rpc_uci_do_rollback(ctx, sid, &gl);
+
+	globfree(&gl);
+
+	return 0;
+}
+
+
 /*
  * Session destroy callback to purge associated delta directory.
  */
@@ -1201,15 +1470,17 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 {
 	static const struct ubus_method uci_methods[] = {
 		{ .name = "configs", .handler = rpc_uci_configs },
-		UBUS_METHOD("get",     rpc_uci_get,     rpc_uci_get_policy),
-		UBUS_METHOD("add",     rpc_uci_add,     rpc_uci_add_policy),
-		UBUS_METHOD("set",     rpc_uci_set,     rpc_uci_set_policy),
-		UBUS_METHOD("delete",  rpc_uci_delete,  rpc_uci_delete_policy),
-		UBUS_METHOD("rename",  rpc_uci_rename,  rpc_uci_rename_policy),
-		UBUS_METHOD("order",   rpc_uci_order,   rpc_uci_order_policy),
-		UBUS_METHOD("changes", rpc_uci_changes, rpc_uci_config_policy),
-		UBUS_METHOD("revert",  rpc_uci_revert,  rpc_uci_config_policy),
-		UBUS_METHOD("commit",  rpc_uci_commit,  rpc_uci_config_policy),
+		UBUS_METHOD("get",      rpc_uci_get,      rpc_uci_get_policy),
+		UBUS_METHOD("add",      rpc_uci_add,      rpc_uci_add_policy),
+		UBUS_METHOD("set",      rpc_uci_set,      rpc_uci_set_policy),
+		UBUS_METHOD("delete",   rpc_uci_delete,   rpc_uci_delete_policy),
+		UBUS_METHOD("rename",   rpc_uci_rename,   rpc_uci_rename_policy),
+		UBUS_METHOD("order",    rpc_uci_order,    rpc_uci_order_policy),
+		UBUS_METHOD("changes",  rpc_uci_changes,  rpc_uci_config_policy),
+		UBUS_METHOD("revert",   rpc_uci_revert,   rpc_uci_config_policy),
+		UBUS_METHOD("commit",   rpc_uci_commit,   rpc_uci_config_policy),
+		UBUS_METHOD("apply",    rpc_uci_apply,    rpc_uci_apply_policy),
+		UBUS_METHOD("rollback", rpc_uci_rollback, rpc_uci_rollback_policy),
 	};
 
 	static struct ubus_object_type uci_type =
