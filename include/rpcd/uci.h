@@ -32,4 +32,6 @@
 
 int rpc_uci_api_init(struct ubus_context *ctx);
 
+void rpc_uci_purge_savedirs(void);
+
 #endif

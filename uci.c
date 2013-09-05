@@ -1159,8 +1159,7 @@ rpc_uci_purge_savedir_cb(struct rpc_session *ses, void *priv)
  * Removes all delta directories which match the /tmp/.uci-rpc-* pattern.
  * This is used to clean up garbage when starting rpcd.
  */
-static void
-rpc_uci_purge_savedirs(void)
+void rpc_uci_purge_savedirs(void)
 {
 	int i;
 	glob_t gl;
@@ -1208,7 +1207,6 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 	if (!cursor)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
-	rpc_uci_purge_savedirs();
 	rpc_session_destroy_cb(&cb);
 
 	return ubus_add_object(ctx, &obj);
