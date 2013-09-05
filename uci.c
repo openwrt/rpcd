@@ -1115,7 +1115,7 @@ out:
  * Remove given delta save directory (if any).
  */
 static void
-rpc_uci_purge_savedir(const char *path)
+rpc_uci_purge_dir(const char *path)
 {
 	DIR *d;
 	struct stat s;
@@ -1152,7 +1152,7 @@ rpc_uci_purge_savedir_cb(struct rpc_session *ses, void *priv)
 	char path[PATH_MAX];
 
 	snprintf(path, sizeof(path) - 1, RPC_UCI_SAVEDIR_PREFIX "%s", ses->id);
-	rpc_uci_purge_savedir(path);
+	rpc_uci_purge_dir(path);
 }
 
 /*
@@ -1167,7 +1167,7 @@ void rpc_uci_purge_savedirs(void)
 	if (!glob(RPC_UCI_SAVEDIR_PREFIX "*", 0, NULL, &gl))
 	{
 		for (i = 0; i < gl.gl_pathc; i++)
-			rpc_uci_purge_savedir(gl.gl_pathv[i]);
+			rpc_uci_purge_dir(gl.gl_pathv[i]);
 
 		globfree(&gl);
 	}
