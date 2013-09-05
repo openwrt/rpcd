@@ -16,6 +16,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <libubox/blobmsg.h>
+#include <libubox/blobmsg_json.h>
+
 #include <rpcd/uci.h>
 #include <rpcd/session.h>
 
@@ -1030,8 +1033,28 @@ out:
 	return rpc_uci_status();
 }
 
+static void
+rpc_uci_trigger_event(struct ubus_context *ctx, const char *config)
+{
+	char *pkg = strdup(config);
+	static struct blob_buf b;
+	uint32_t id;
+
+	if (!ubus_lookup_id(ctx, "service", &id)) {
+		void *c;
+
+		blob_buf_init(&b, 0);
+		blobmsg_add_string(&b, "type", "config.change");
+		c = blobmsg_open_table(&b, "data");
+		blobmsg_add_string(&b, "package", pkg);
+		blobmsg_close_table(&b, c);
+		ubus_invoke(ctx, id, "event", b.head, NULL, 0, 1000);
+	}
+	free(pkg);
+}
+
 static int
-rpc_uci_revert_commit(struct blob_attr *msg, bool commit)
+rpc_uci_revert_commit(struct ubus_context *ctx, struct blob_attr *msg, bool commit)
 {
 	struct blob_attr *tb[__RPC_C_MAX];
 	struct uci_package *p = NULL;
@@ -1057,6 +1080,7 @@ rpc_uci_revert_commit(struct blob_attr *msg, bool commit)
 			uci_commit(cursor, &p, false);
 			uci_unload(cursor, p);
 		}
+		rpc_uci_trigger_event(ctx, blobmsg_get_string(tb[RPC_C_CONFIG]));
 	}
 	else
 	{
@@ -1072,7 +1096,7 @@ rpc_uci_revert(struct ubus_context *ctx, struct ubus_object *obj,
                struct ubus_request_data *req, const char *method,
                struct blob_attr *msg)
 {
-	return rpc_uci_revert_commit(msg, false);
+	return rpc_uci_revert_commit(ctx, msg, false);
 }
 
 static int
@@ -1080,7 +1104,7 @@ rpc_uci_commit(struct ubus_context *ctx, struct ubus_object *obj,
                struct ubus_request_data *req, const char *method,
                struct blob_attr *msg)
 {
-	return rpc_uci_revert_commit(msg, true);
+	return rpc_uci_revert_commit(ctx, msg, true);
 }
 
 static int
