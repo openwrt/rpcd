@@ -52,11 +52,13 @@ exec_self(int argc, char **argv)
 	for (i = 0; i < argc; i++)
 		args[i] = argv[i];
 
+	setenv("RPC_HANGUP", "1", 1);
 	execv(cmd, (char * const *)args);
 }
 
 int main(int argc, char **argv)
 {
+	const char *hangup;
 	const char *ubus_socket = NULL;
 	int ch;
 
@@ -88,7 +90,12 @@ int main(int argc, char **argv)
 	rpc_uci_api_init(ctx);
 	rpc_plugin_api_init(ctx);
 
-	rpc_session_thaw();
+	hangup = getenv("RPC_HANGUP");
+
+	if (!hangup || strcmp(hangup, "1"))
+		rpc_uci_purge_savedirs();
+	else
+		rpc_session_thaw();
 
 	uloop_run();
 	ubus_free(ctx);
