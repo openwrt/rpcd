@@ -77,6 +77,8 @@ int main(int argc, char **argv)
 	if (stat("/var/run/rpcd", &s))
 		mkdir("/var/run/rpcd", 0700);
 
+	umask(0077);
+
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP,  handle_signal);
 	signal(SIGUSR1, handle_signal);
