@@ -22,6 +22,7 @@
 #include <libubox/blobmsg_json.h>
 #include <libubus.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 #include <rpcd/session.h>
 #include <rpcd/uci.h>
@@ -58,6 +59,7 @@ exec_self(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+	struct stat s;
 	const char *hangup;
 	const char *ubus_socket = NULL;
 	int ch;
@@ -71,6 +73,9 @@ int main(int argc, char **argv)
 			break;
 		}
 	}
+
+	if (stat("/var/run/rpcd", &s))
+		mkdir("/var/run/rpcd", 0700);
 
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP,  handle_signal);

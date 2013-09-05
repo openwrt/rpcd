@@ -30,6 +30,8 @@
 #include <libubus.h>
 #include <uci.h>
 
+#define RPC_UCI_SAVEDIR_PREFIX  "/var/run/rpcd/uci-"
+
 int rpc_uci_api_init(struct ubus_context *ctx);
 
 void rpc_uci_purge_savedirs(void);

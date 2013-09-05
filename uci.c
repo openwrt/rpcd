@@ -185,7 +185,7 @@ rpc_uci_set_savedir(struct blob_attr *sid)
 	}
 
 	snprintf(path, sizeof(path) - 1,
-	         "/tmp/.uci-rpc-%s", (char *)blobmsg_data(sid));
+	         RPC_UCI_SAVEDIR_PREFIX "%s", blobmsg_get_string(sid));
 
 	uci_set_savedir(cursor, path);
 }
@@ -1151,12 +1151,12 @@ rpc_uci_purge_savedir_cb(struct rpc_session *ses, void *priv)
 {
 	char path[PATH_MAX];
 
-	snprintf(path, sizeof(path) - 1, "/tmp/.uci-rpc-%s", ses->id);
+	snprintf(path, sizeof(path) - 1, RPC_UCI_SAVEDIR_PREFIX "%s", ses->id);
 	rpc_uci_purge_savedir(path);
 }
 
 /*
- * Removes all delta directories which match the /tmp/.uci-rpc-* pattern.
+ * Removes all delta directories which match the RPC_UCI_SAVEDIR_PREFIX.
  * This is used to clean up garbage when starting rpcd.
  */
 void rpc_uci_purge_savedirs(void)
@@ -1164,7 +1164,7 @@ void rpc_uci_purge_savedirs(void)
 	int i;
 	glob_t gl;
 
-	if (!glob("/tmp/.uci-rpc-*", 0, NULL, &gl))
+	if (!glob(RPC_UCI_SAVEDIR_PREFIX "*", 0, NULL, &gl))
 	{
 		for (i = 0; i < gl.gl_pathc; i++)
 			rpc_uci_purge_savedir(gl.gl_pathv[i]);
