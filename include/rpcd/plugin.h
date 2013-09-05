@@ -34,8 +34,8 @@
 #include <libubox/blobmsg_json.h>
 #include <libubus.h>
 
-#include "exec.h"
-#include "session.h"
+#include <rpcd/exec.h>
+#include <rpcd/session.h>
 
 /* location of plugin executables */
 #define RPC_PLUGIN_DIRECTORY        "/usr/libexec/rpcd"
