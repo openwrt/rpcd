@@ -4,7 +4,6 @@ PROJECT(rpcd C)
 ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations -Iinclude)
 
 OPTION(FILE_SUPPORT "File plugin support" ON)
-OPTION(LUCI2_SUPPORT "LuCI2 plugin support" ON)
 OPTION(IWINFO_SUPPORT "libiwinfo plugin support" ON)
 
 SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
@@ -26,13 +25,6 @@ IF(FILE_SUPPORT)
   ADD_LIBRARY(file_plugin MODULE file.c)
   TARGET_LINK_LIBRARIES(file_plugin ubox ubus)
   SET_TARGET_PROPERTIES(file_plugin PROPERTIES OUTPUT_NAME file PREFIX "")
-ENDIF()
-
-IF(LUCI2_SUPPORT)
-  SET(PLUGINS ${PLUGINS} luci2_plugin)
-  ADD_LIBRARY(luci2_plugin MODULE luci2.c)
-  TARGET_LINK_LIBRARIES(luci2_plugin ubox ubus)
-  SET_TARGET_PROPERTIES(luci2_plugin PROPERTIES OUTPUT_NAME luci2 PREFIX "")
 ENDIF()
 
 IF (IWINFO_SUPPORT)
