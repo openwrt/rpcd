@@ -792,7 +792,7 @@ rpc_login_test_password(const char *hash, const char *password)
 #endif
 	}
 
-	crypt_hash = crypt(hash, password);
+	crypt_hash = crypt(password, hash);
 
 	return !strcmp(crypt_hash, hash);
 }
@@ -801,7 +801,7 @@ static struct uci_section *
 rpc_login_test_login(struct uci_context *uci,
                      const char *username, const char *password)
 {
-	struct uci_package *p;
+	struct uci_package *p = NULL;
 	struct uci_section *s;
 	struct uci_element *e;
 	struct uci_ptr ptr = { .package = "rpcd" };
