@@ -32,7 +32,9 @@
 
 #define RPC_SID_LEN	32
 #define RPC_DEFAULT_SESSION_TIMEOUT	300
+#define RPC_DEFAULT_SESSION_ID	"00000000000000000000000000000000"
 #define RPC_SESSION_DIRECTORY	"/var/run/rpcd/sessions"
+#define RPC_SESSION_ACL_DIR		"/usr/share/rpcd/acl.d"
 
 struct rpc_session {
 	struct avl_node avl;

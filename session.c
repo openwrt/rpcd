@@ -17,10 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE	/* crypt() */
+
 #include <libubox/avl-cmp.h>
+#include <libubox/blobmsg.h>
 #include <libubox/utils.h>
 #include <libubus.h>
 #include <fnmatch.h>
+#include <glob.h>
+#include <uci.h>
+
+#ifdef HAVE_SHADOW
+#include <shadow.h>
+#endif
 
 #include <rpcd/session.h>
 
@@ -98,6 +107,18 @@ static const struct blobmsg_policy dump_policy[__RPC_DUMP_MAX] = {
 	[RPC_DUMP_EXPIRES] = { .name = "expires", .type = BLOBMSG_TYPE_INT32 },
 	[RPC_DUMP_ACLS] = { .name = "acls", .type = BLOBMSG_TYPE_TABLE },
 	[RPC_DUMP_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
+};
+
+enum {
+	RPC_L_USERNAME,
+	RPC_L_PASSWORD,
+	RPC_L_TIMEOUT,
+	__RPC_L_MAX,
+};
+static const struct blobmsg_policy login_policy[__RPC_L_MAX] = {
+	[RPC_L_USERNAME] = { .name = "username", .type = BLOBMSG_TYPE_STRING },
+	[RPC_L_PASSWORD] = { .name = "password", .type = BLOBMSG_TYPE_STRING },
+	[RPC_L_TIMEOUT]  = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
 };
 
 /*
@@ -215,7 +236,8 @@ rpc_session_dump(struct rpc_session *ses, struct ubus_context *ctx,
 static void
 rpc_touch_session(struct rpc_session *ses)
 {
-	uloop_timeout_set(&ses->t, ses->timeout * 1000);
+	if (ses->timeout > 0)
+		uloop_timeout_set(&ses->t, ses->timeout * 1000);
 }
 
 static void
@@ -740,6 +762,332 @@ rpc_handle_destroy(struct ubus_context *ctx, struct ubus_object *obj,
 
 
 static bool
+rpc_login_test_password(const char *hash, const char *password)
+{
+	char *crypt_hash;
+
+	/* password is not set */
+	if (!hash || !*hash || !strcmp(hash, "!") || !strcmp(hash, "x"))
+	{
+		return true;
+	}
+
+	/* password hash refers to shadow/passwd */
+	else if (!strncmp(hash, "$p$", 3))
+	{
+#ifdef HAVE_SHADOW
+		struct spwd *sp = getspnam(hash + 3);
+
+		if (!sp)
+			return false;
+
+		return rpc_login_test_password(sp->sp_pwdp, password);
+#else
+		struct passwd *pw = getpwnam(hash + 3);
+
+		if (!pw)
+			return false;
+
+		return rpc_login_test_password(pw->pw_passwd, password);
+#endif
+	}
+
+	crypt_hash = crypt(hash, password);
+
+	return !strcmp(crypt_hash, hash);
+}
+
+static struct uci_section *
+rpc_login_test_login(struct uci_context *uci,
+                     const char *username, const char *password)
+{
+	struct uci_package *p;
+	struct uci_section *s;
+	struct uci_element *e;
+	struct uci_ptr ptr = { .package = "rpcd" };
+
+	uci_load(uci, ptr.package, &p);
+
+	if (!p)
+		return false;
+
+	uci_foreach_element(&p->sections, e)
+	{
+		s = uci_to_section(e);
+
+		if (strcmp(s->type, "login"))
+			continue;
+
+		ptr.section = s->e.name;
+		ptr.s = NULL;
+
+		/* test for matching username */
+		ptr.option = "username";
+		ptr.o = NULL;
+
+		if (uci_lookup_ptr(uci, &ptr, NULL, true))
+			continue;
+
+		if (ptr.o->type != UCI_TYPE_STRING)
+			continue;
+
+		if (strcmp(ptr.o->v.string, username))
+			continue;
+
+		/* test for matching password */
+		ptr.option = "password";
+		ptr.o = NULL;
+
+		if (uci_lookup_ptr(uci, &ptr, NULL, true))
+			continue;
+
+		if (ptr.o->type != UCI_TYPE_STRING)
+			continue;
+
+		if (rpc_login_test_password(ptr.o->v.string, password))
+			return ptr.s;
+	}
+
+	return NULL;
+}
+
+static bool
+rpc_login_test_permission(struct uci_section *s,
+                          const char *perm, const char *group)
+{
+	struct uci_option *o;
+	struct uci_element *e, *l;
+
+	/* If the login section is not provided, we're setting up acls for the
+	 * default session, in this case uncondionally allow access to the
+	 * "unauthenticated" access group */
+	if (!s) {
+		return !strcmp(group, "unauthenticated");
+	}
+
+	uci_foreach_element(&s->options, e)
+	{
+		o = uci_to_option(e);
+
+		if (o->type != UCI_TYPE_LIST)
+			continue;
+
+		if (strcmp(o->e.name, perm))
+			continue;
+
+		uci_foreach_element(&o->v.list, l)
+			if (l->name && !fnmatch(l->name, group, 0))
+				return true;
+	}
+
+	/* make sure that write permission implies read permission */
+	if (!strcmp(perm, "read"))
+		return rpc_login_test_permission(s, "write", group);
+
+	return false;
+}
+
+static void
+rpc_login_setup_acl_scope(struct rpc_session *ses,
+                          struct blob_attr *acl_perm,
+                          struct blob_attr *acl_scope)
+{
+	struct blob_attr *acl_obj, *acl_func;
+	int rem, rem2;
+
+	/*
+	 * Parse ACL scopes in table notation.
+	 *
+	 *	"<scope>": {
+	 *		"<object>": [
+	 *			"<function>",
+	 *			"<function>",
+	 *			...
+	 *		]
+	 *	}
+	 */
+	if (blob_id(acl_scope) == BLOBMSG_TYPE_TABLE) {
+		blobmsg_for_each_attr(acl_obj, acl_scope, rem) {
+			if (blob_id(acl_obj) != BLOBMSG_TYPE_ARRAY)
+				continue;
+
+			blobmsg_for_each_attr(acl_func, acl_obj, rem2) {
+				if (blob_id(acl_func) != BLOBMSG_TYPE_STRING)
+					continue;
+
+				rpc_session_grant(ses, NULL, blobmsg_name(acl_scope),
+				                             blobmsg_name(acl_obj),
+				                             blobmsg_data(acl_func));
+			}
+		}
+	}
+
+	/*
+	 * Parse ACL scopes in array notation. The permission ("read" or "write")
+	 * will be used as function name for each object.
+	 *
+	 *	"<scope>": [
+	 *		"<object>",
+	 *		"<object>",
+	 *		...
+	 *	]
+	 */
+	else if (blob_id(acl_scope) == BLOBMSG_TYPE_ARRAY) {
+		blobmsg_for_each_attr(acl_obj, acl_scope, rem) {
+			if (blob_id(acl_obj) != BLOBMSG_TYPE_STRING)
+				continue;
+
+			rpc_session_grant(ses, NULL, blobmsg_name(acl_scope),
+				                         blobmsg_data(acl_obj),
+				                         blobmsg_name(acl_perm));
+		}
+	}
+}
+
+static void
+rpc_login_setup_acl_file(struct rpc_session *ses, struct uci_section *login,
+                         const char *path)
+{
+	struct blob_buf acl = { 0 };
+	struct blob_attr *acl_group, *acl_perm, *acl_scope;
+	int rem, rem2, rem3;
+
+	blob_buf_init(&acl, 0);
+
+	if (!blobmsg_add_json_from_file(&acl, path)) {
+		fprintf(stderr, "Failed to parse %s\n", path);
+		goto out;
+	}
+
+	/* Iterate access groups in toplevel object */
+	blob_for_each_attr(acl_group, acl.head, rem) {
+		/* Iterate permission objects in each access group object */
+		blobmsg_for_each_attr(acl_perm, acl_group, rem2) {
+			if (blob_id(acl_perm) != BLOBMSG_TYPE_TABLE)
+				continue;
+
+			/* Only "read" and "write" permissions are defined */
+			if (strcmp(blobmsg_name(acl_perm), "read") &&
+				strcmp(blobmsg_name(acl_perm), "write"))
+				continue;
+
+			/*
+			 * Check if the current user context specifies the current
+			 * "read" or "write" permission in the given access group.
+			 */
+			if (!rpc_login_test_permission(login, blobmsg_name(acl_perm),
+			                                      blobmsg_name(acl_group)))
+				continue;
+
+			/* Iterate scope objects within the permission object */
+			blobmsg_for_each_attr(acl_scope, acl_perm, rem3) {
+				/* Setup the scopes of the access group */
+				rpc_login_setup_acl_scope(ses, acl_perm, acl_scope);
+
+				/*
+				 * Add the access group itself as object to the "access-group"
+				 * meta scope and the the permission level ("read" or "write")
+				 * as function, so
+				 *	"<group>": {
+				 *		"<permission>": {
+				 *			"<scope>": ...
+				 *		}
+				 *	}
+				 * becomes
+				 *	"access-group": {
+				 *		"<group>": [
+				 *			"<permission>"
+				 *		]
+				 *	}
+				 *
+				 * This allows session clients to easily query the allowed
+				 * access groups without having to test access of each single
+				 * <scope>/<object>/<function> tuple defined in a group.
+				 */
+				rpc_session_grant(ses, NULL, "access-group",
+				                             blobmsg_name(acl_group),
+				                             blobmsg_name(acl_perm));
+			}
+		}
+	}
+
+out:
+	blob_buf_free(&acl);
+}
+
+static void
+rpc_login_setup_acls(struct rpc_session *ses, struct uci_section *login)
+{
+	int i;
+	glob_t gl;
+
+	if (glob(RPC_SESSION_ACL_DIR "/*.json", 0, NULL, &gl))
+		return;
+
+	for (i = 0; i < gl.gl_pathc; i++)
+		rpc_login_setup_acl_file(ses, login, gl.gl_pathv[i]);
+
+	globfree(&gl);
+}
+
+static int
+rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
+                 struct ubus_request_data *req, const char *method,
+                 struct blob_attr *msg)
+{
+	struct uci_context *uci = NULL;
+	struct uci_section *login;
+	struct rpc_session *ses;
+	struct blob_attr *tb[__RPC_L_MAX];
+	int timeout = RPC_DEFAULT_SESSION_TIMEOUT;
+	int rv = 0;
+
+	blobmsg_parse(acl_policy, __RPC_L_MAX, tb, blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_L_USERNAME] || !tb[RPC_L_PASSWORD]) {
+		rv = UBUS_STATUS_INVALID_ARGUMENT;
+		goto out;
+	}
+
+	uci = uci_alloc_context();
+
+	if (!uci) {
+		rv = UBUS_STATUS_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	login = rpc_login_test_login(uci, blobmsg_get_string(tb[RPC_L_USERNAME]),
+	                                  blobmsg_get_string(tb[RPC_L_PASSWORD]));
+
+	if (!login) {
+		rv = UBUS_STATUS_PERMISSION_DENIED;
+		goto out;
+	}
+
+	if (tb[RPC_L_TIMEOUT])
+		timeout = blobmsg_get_u32(tb[RPC_L_TIMEOUT]);
+
+	ses = rpc_session_create(timeout);
+
+	if (!ses) {
+		rv = UBUS_STATUS_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	rpc_login_setup_acls(ses, login);
+
+	rpc_session_set(ses, "user", tb[RPC_L_USERNAME]);
+	rpc_session_dump(ses, ctx, req);
+
+out:
+	if (uci)
+		uci_free_context(uci);
+
+	return rv;
+}
+
+
+static bool
 rpc_validate_sid(const char *id)
 {
 	if (!id)
@@ -868,6 +1216,8 @@ rpc_session_from_blob(struct blob_attr *attr)
 
 int rpc_session_api_init(struct ubus_context *ctx)
 {
+	struct rpc_session *ses;
+
 	static const struct ubus_method session_methods[] = {
 		UBUS_METHOD("create",  rpc_handle_create,  &new_policy),
 		UBUS_METHOD("list",    rpc_handle_list,    &sid_policy),
@@ -878,6 +1228,7 @@ int rpc_session_api_init(struct ubus_context *ctx)
 		UBUS_METHOD("get",     rpc_handle_get,     get_policy),
 		UBUS_METHOD("unset",   rpc_handle_unset,   get_policy),
 		UBUS_METHOD("destroy", rpc_handle_destroy, &sid_policy),
+		UBUS_METHOD("login",   rpc_handle_login,   login_policy),
 	};
 
 	static struct ubus_object_type session_type =
@@ -891,6 +1242,15 @@ int rpc_session_api_init(struct ubus_context *ctx)
 	};
 
 	avl_init(&sessions, avl_strcmp, false, NULL);
+
+	/* setup the default session */
+	ses = rpc_session_new();
+
+	if (ses) {
+		strcpy(ses->id, RPC_DEFAULT_SESSION_ID);
+		rpc_login_setup_acls(ses, NULL);
+		avl_insert(&sessions, &ses->avl);
+	}
 
 	return ubus_add_object(ctx, &obj);
 }
@@ -928,6 +1288,10 @@ void rpc_session_freeze(void)
 		mkdir(RPC_SESSION_DIRECTORY, 0700);
 
 	avl_for_each_element(&sessions, ses, avl) {
+		/* skip default session */
+		if (!strcmp(ses->id, RPC_DEFAULT_SESSION_ID))
+			continue;
+
 		snprintf(path, sizeof(path) - 1, RPC_SESSION_DIRECTORY "/%s", ses->id);
 		rpc_session_to_blob(ses);
 		rpc_blob_to_file(path, buf.head);
