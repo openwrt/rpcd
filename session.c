@@ -1042,7 +1042,7 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 	int timeout = RPC_DEFAULT_SESSION_TIMEOUT;
 	int rv = 0;
 
-	blobmsg_parse(acl_policy, __RPC_L_MAX, tb, blob_data(msg), blob_len(msg));
+	blobmsg_parse(login_policy, __RPC_L_MAX, tb, blob_data(msg), blob_len(msg));
 
 	if (!tb[RPC_L_USERNAME] || !tb[RPC_L_PASSWORD]) {
 		rv = UBUS_STATUS_INVALID_ARGUMENT;
