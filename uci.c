@@ -538,10 +538,9 @@ rpc_uci_get(struct ubus_context *ctx, struct ubus_object *obj,
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_G_CONFIG]);
-	uci_load(cursor, ptr.package, &p);
 
-	if (!p)
-		goto out;
+	if (uci_load(cursor, ptr.package, &p))
+		return rpc_uci_status();
 
 	if (tb[RPC_G_SECTION])
 	{
@@ -577,8 +576,7 @@ rpc_uci_get(struct ubus_context *ctx, struct ubus_object *obj,
 	ubus_send_reply(ctx, req, buf.head);
 
 out:
-	if (p)
-		uci_unload(cursor, p);
+	uci_unload(cursor, p);
 
 	return rpc_uci_status();
 }
@@ -606,10 +604,8 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 
 	ptr.package = blobmsg_data(tb[RPC_A_CONFIG]);
 
-	uci_load(cursor, ptr.package, &p);
-
-	if (!p)
-		goto out;
+	if (uci_load(cursor, ptr.package, &p))
+		return rpc_uci_status();
 
 	/* add named section */
 	if (tb[RPC_A_NAME])
@@ -664,8 +660,7 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 	ubus_send_reply(ctx, req, buf.head);
 
 out:
-	if (p)
-		uci_unload(cursor, p);
+	uci_unload(cursor, p);
 
 	return rpc_uci_status();
 }
@@ -737,10 +732,9 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_S_CONFIG]);
-	uci_load(cursor, ptr.package, &p);
 
-	if (!p)
-		goto out;
+	if (uci_load(cursor, ptr.package, &p))
+		return rpc_uci_status();
 
 	if (tb[RPC_S_SECTION])
 	{
@@ -765,10 +759,7 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 
 	uci_save(cursor, p);
-
-out:
-	if (p)
-		uci_unload(cursor, p);
+	uci_unload(cursor, p);
 
 	return rpc_uci_status();
 }
@@ -844,10 +835,9 @@ rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_D_CONFIG]);
-	uci_load(cursor, ptr.package, &p);
 
-	if (!p)
-		goto out;
+	if (uci_load(cursor, ptr.package, &p))
+		return rpc_uci_status();
 
 	if (tb[RPC_D_SECTION])
 	{
@@ -877,10 +867,7 @@ rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 
 	uci_save(cursor, p);
-
-out:
-	if (p)
-		uci_unload(cursor, p);
+	uci_unload(cursor, p);
 
 	return rpc_uci_status();
 }
@@ -910,10 +897,8 @@ rpc_uci_rename(struct ubus_context *ctx, struct ubus_object *obj,
 	if (tb[RPC_R_OPTION])
 		ptr.option = blobmsg_data(tb[RPC_R_OPTION]);
 
-	uci_load(cursor, ptr.package, &p);
-
-	if (!p)
-		goto out;
+	if (uci_load(cursor, ptr.package, &p))
+		return rpc_uci_status();
 
 	if (uci_lookup_ptr(cursor, &ptr, NULL, true))
 		goto out;
@@ -930,8 +915,7 @@ rpc_uci_rename(struct ubus_context *ctx, struct ubus_object *obj,
 	uci_save(cursor, p);
 
 out:
-	if (p)
-		uci_unload(cursor, p);
+	uci_unload(cursor, p);
 
 	return rpc_uci_status();
 }
@@ -958,10 +942,8 @@ rpc_uci_order(struct ubus_context *ctx, struct ubus_object *obj,
 
 	ptr.package = blobmsg_data(tb[RPC_O_CONFIG]);
 
-	uci_load(cursor, ptr.package, &p);
-
-	if (!p)
-		goto out;
+	if (uci_load(cursor, ptr.package, &p))
+		return rpc_uci_status();
 
 	blobmsg_for_each_attr(cur, tb[RPC_O_SECTIONS], rem)
 	{
@@ -978,10 +960,7 @@ rpc_uci_order(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 
 	uci_save(cursor, p);
-
-out:
-	if (p)
-		uci_unload(cursor, p);
+	uci_unload(cursor, p);
 
 	return rpc_uci_status();
 }
@@ -1041,10 +1020,8 @@ rpc_uci_changes(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!rpc_uci_read_access(tb[RPC_C_SESSION], tb[RPC_C_CONFIG]))
 		return UBUS_STATUS_PERMISSION_DENIED;
 
-	uci_load(cursor, blobmsg_data(tb[RPC_C_CONFIG]), &p);
-
-	if (!p)
-		goto out;
+	if (uci_load(cursor, blobmsg_data(tb[RPC_C_CONFIG]), &p))
+		return rpc_uci_status();
 
 	blob_buf_init(&buf, 0);
 	c = blobmsg_open_array(&buf, "changes");
@@ -1056,9 +1033,7 @@ rpc_uci_changes(struct ubus_context *ctx, struct ubus_object *obj,
 
 	ubus_send_reply(ctx, req, buf.head);
 
-out:
-	if (p)
-		uci_unload(cursor, p);
+	uci_unload(cursor, p);
 
 	return rpc_uci_status();
 }
@@ -1106,9 +1081,7 @@ rpc_uci_revert_commit(struct ubus_context *ctx, struct blob_attr *msg, bool comm
 
 	if (commit)
 	{
-		uci_load(cursor, ptr.package, &p);
-
-		if (p)
+		if (!uci_load(cursor, ptr.package, &p))
 		{
 			uci_commit(cursor, &p, false);
 			uci_unload(cursor, p);
@@ -1207,9 +1180,8 @@ rpc_uci_apply_config(struct ubus_context *ctx, char *config)
 	struct uci_ptr ptr = { 0 };
 
 	ptr.package = config;
-	uci_load(cursor, ptr.package, &p);
 
-	if (p) {
+	if (!uci_load(cursor, ptr.package, &p)) {
 		uci_commit(cursor, &p, false);
 		uci_unload(cursor, p);
 	}
