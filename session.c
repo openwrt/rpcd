@@ -380,7 +380,7 @@ uh_id_len(const char *str)
 }
 
 static int
-rpc_session_grant(struct rpc_session *ses, struct ubus_context *ctx,
+rpc_session_grant(struct rpc_session *ses,
                   const char *scope, const char *object, const char *function)
 {
 	struct rpc_session_acl *acl;
@@ -431,7 +431,7 @@ rpc_session_grant(struct rpc_session *ses, struct ubus_context *ctx,
 }
 
 static int
-rpc_session_revoke(struct rpc_session *ses, struct ubus_context *ctx,
+rpc_session_revoke(struct rpc_session *ses,
                    const char *scope, const char *object, const char *function)
 {
 	struct rpc_session_acl *acl, *next;
@@ -496,8 +496,8 @@ rpc_handle_acl(struct ubus_context *ctx, struct ubus_object *obj,
 	const char *scope = "ubus";
 	int rem1, rem2;
 
-	int (*cb)(struct rpc_session *ses, struct ubus_context *ctx,
-		  const char *scope, const char *object, const char *function);
+	int (*cb)(struct rpc_session *ses,
+	          const char *scope, const char *object, const char *function);
 
 	blobmsg_parse(acl_policy, __RPC_SA_MAX, tb, blob_data(msg), blob_len(msg));
 
@@ -517,7 +517,7 @@ rpc_handle_acl(struct ubus_context *ctx, struct ubus_object *obj,
 		cb = rpc_session_revoke;
 
 	if (!tb[RPC_SA_OBJECTS])
-		return cb(ses, ctx, scope, NULL, NULL);
+		return cb(ses, scope, NULL, NULL);
 
 	blobmsg_for_each_attr(attr, tb[RPC_SA_OBJECTS], rem1) {
 		if (blob_id(attr) != BLOBMSG_TYPE_ARRAY)
@@ -539,7 +539,7 @@ rpc_handle_acl(struct ubus_context *ctx, struct ubus_object *obj,
 		}
 
 		if (object && function)
-			cb(ses, ctx, scope, object, function);
+			cb(ses, scope, object, function);
 	}
 
 	return 0;
@@ -917,9 +917,9 @@ rpc_login_setup_acl_scope(struct rpc_session *ses,
 				if (blob_id(acl_func) != BLOBMSG_TYPE_STRING)
 					continue;
 
-				rpc_session_grant(ses, NULL, blobmsg_name(acl_scope),
-				                             blobmsg_name(acl_obj),
-				                             blobmsg_data(acl_func));
+				rpc_session_grant(ses, blobmsg_name(acl_scope),
+				                       blobmsg_name(acl_obj),
+				                       blobmsg_data(acl_func));
 			}
 		}
 	}
@@ -939,9 +939,9 @@ rpc_login_setup_acl_scope(struct rpc_session *ses,
 			if (blob_id(acl_obj) != BLOBMSG_TYPE_STRING)
 				continue;
 
-			rpc_session_grant(ses, NULL, blobmsg_name(acl_scope),
-				                         blobmsg_data(acl_obj),
-				                         blobmsg_name(acl_perm));
+			rpc_session_grant(ses, blobmsg_name(acl_scope),
+			                       blobmsg_data(acl_obj),
+			                       blobmsg_name(acl_perm));
 		}
 	}
 }
@@ -1006,9 +1006,9 @@ rpc_login_setup_acl_file(struct rpc_session *ses, struct uci_section *login,
 				 * access groups without having to test access of each single
 				 * <scope>/<object>/<function> tuple defined in a group.
 				 */
-				rpc_session_grant(ses, NULL, "access-group",
-				                             blobmsg_name(acl_group),
-				                             blobmsg_name(acl_perm));
+				rpc_session_grant(ses, "access-group",
+				                       blobmsg_name(acl_group),
+				                       blobmsg_name(acl_perm));
 			}
 		}
 	}
