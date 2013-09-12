@@ -526,14 +526,14 @@ rpc_handle_acl(struct ubus_context *ctx, struct ubus_object *obj,
 		return cb(ses, scope, NULL, NULL);
 
 	blobmsg_for_each_attr(attr, tb[RPC_SA_OBJECTS], rem1) {
-		if (blob_id(attr) != BLOBMSG_TYPE_ARRAY)
+		if (blobmsg_type(attr) != BLOBMSG_TYPE_ARRAY)
 			continue;
 
 		object = NULL;
 		function = NULL;
 
 		blobmsg_for_each_attr(sattr, attr, rem2) {
-			if (blob_id(sattr) != BLOBMSG_TYPE_STRING)
+			if (blobmsg_type(sattr) != BLOBMSG_TYPE_STRING)
 				continue;
 
 			if (!object)
@@ -676,7 +676,7 @@ rpc_handle_get(struct ubus_context *ctx, struct ubus_object *obj,
 
 	if (tb[RPC_SG_KEYS])
 		blobmsg_for_each_attr(attr, tb[RPC_SG_KEYS], rem) {
-			if (blob_id(attr) != BLOBMSG_TYPE_STRING)
+			if (blobmsg_type(attr) != BLOBMSG_TYPE_STRING)
 				continue;
 
 			data = avl_find_element(&ses->data, blobmsg_data(attr), data, avl);
@@ -724,7 +724,7 @@ rpc_handle_unset(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 
 	blobmsg_for_each_attr(attr, tb[RPC_SG_KEYS], rem) {
-		if (blob_id(attr) != BLOBMSG_TYPE_STRING)
+		if (blobmsg_type(attr) != BLOBMSG_TYPE_STRING)
 			continue;
 
 		data = avl_find_element(&ses->data, blobmsg_data(attr), data, avl);
@@ -936,13 +936,13 @@ rpc_login_setup_acl_scope(struct rpc_session *ses,
 	 *		]
 	 *	}
 	 */
-	if (blob_id(acl_scope) == BLOBMSG_TYPE_TABLE) {
+	if (blobmsg_type(acl_scope) == BLOBMSG_TYPE_TABLE) {
 		blobmsg_for_each_attr(acl_obj, acl_scope, rem) {
-			if (blob_id(acl_obj) != BLOBMSG_TYPE_ARRAY)
+			if (blobmsg_type(acl_obj) != BLOBMSG_TYPE_ARRAY)
 				continue;
 
 			blobmsg_for_each_attr(acl_func, acl_obj, rem2) {
-				if (blob_id(acl_func) != BLOBMSG_TYPE_STRING)
+				if (blobmsg_type(acl_func) != BLOBMSG_TYPE_STRING)
 					continue;
 
 				rpc_session_grant(ses, blobmsg_name(acl_scope),
@@ -962,9 +962,9 @@ rpc_login_setup_acl_scope(struct rpc_session *ses,
 	 *		...
 	 *	]
 	 */
-	else if (blob_id(acl_scope) == BLOBMSG_TYPE_ARRAY) {
+	else if (blobmsg_type(acl_scope) == BLOBMSG_TYPE_ARRAY) {
 		blobmsg_for_each_attr(acl_obj, acl_scope, rem) {
-			if (blob_id(acl_obj) != BLOBMSG_TYPE_STRING)
+			if (blobmsg_type(acl_obj) != BLOBMSG_TYPE_STRING)
 				continue;
 
 			rpc_session_grant(ses, blobmsg_name(acl_scope),
@@ -993,7 +993,7 @@ rpc_login_setup_acl_file(struct rpc_session *ses, struct uci_section *login,
 	blob_for_each_attr(acl_group, acl.head, rem) {
 		/* Iterate permission objects in each access group object */
 		blobmsg_for_each_attr(acl_perm, acl_group, rem2) {
-			if (blob_id(acl_perm) != BLOBMSG_TYPE_TABLE)
+			if (blobmsg_type(acl_perm) != BLOBMSG_TYPE_TABLE)
 				continue;
 
 			/* Only "read" and "write" permissions are defined */
