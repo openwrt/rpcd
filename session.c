@@ -621,7 +621,7 @@ rpc_handle_set(struct ubus_context *ctx, struct ubus_object *obj,
                struct blob_attr *msg)
 {
 	struct rpc_session *ses;
-	struct blob_attr *tb[__RPC_SA_MAX];
+	struct blob_attr *tb[__RPC_SS_MAX];
 	struct blob_attr *attr;
 	int rem;
 
@@ -651,7 +651,7 @@ rpc_handle_get(struct ubus_context *ctx, struct ubus_object *obj,
 {
 	struct rpc_session *ses;
 	struct rpc_session_data *data;
-	struct blob_attr *tb[__RPC_SA_MAX];
+	struct blob_attr *tb[__RPC_SG_MAX];
 	struct blob_attr *attr;
 	void *c;
 	int rem;
