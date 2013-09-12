@@ -751,6 +751,9 @@ rpc_handle_destroy(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb)
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
+	if (!strcmp(blobmsg_get_string(tb), RPC_DEFAULT_SESSION_ID))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	ses = rpc_session_get(blobmsg_data(tb));
 	if (!ses)
 		return UBUS_STATUS_NOT_FOUND;
