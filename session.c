@@ -863,6 +863,7 @@ static bool
 rpc_login_test_permission(struct uci_section *s,
                           const char *perm, const char *group)
 {
+	const char *p;
 	struct uci_option *o;
 	struct uci_element *e, *l;
 
@@ -883,9 +884,30 @@ rpc_login_test_permission(struct uci_section *s,
 		if (strcmp(o->e.name, perm))
 			continue;
 
-		uci_foreach_element(&o->v.list, l)
-			if (l->name && !fnmatch(l->name, group, 0))
+		/* Match negative expressions first. If a negative expression matches
+		 * the current group name then deny access. */
+		uci_foreach_element(&o->v.list, l) {
+			p = l->name;
+
+			if (!p || *p != '!')
+				continue;
+
+			while (isspace(*++p));
+
+			if (!*p)
+				continue;
+
+			if (!fnmatch(p, group, 0))
+				return false;
+		}
+
+		uci_foreach_element(&o->v.list, l) {
+			if (!l->name || !*l->name || *l->name == '!')
+				continue;
+
+			if (!fnmatch(l->name, group, 0))
 				return true;
+		}
 	}
 
 	/* make sure that write permission implies read permission */
