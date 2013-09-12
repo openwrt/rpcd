@@ -203,7 +203,7 @@ rpc_session_dump_acls(struct rpc_session *ses, struct blob_buf *b)
 }
 
 static void
-rpc_session_to_blob(struct rpc_session *ses)
+rpc_session_to_blob(struct rpc_session *ses, bool acls)
 {
 	void *c;
 
@@ -212,6 +212,12 @@ rpc_session_to_blob(struct rpc_session *ses)
 	blobmsg_add_string(&buf, "sid", ses->id);
 	blobmsg_add_u32(&buf, "timeout", ses->timeout);
 	blobmsg_add_u32(&buf, "expires", uloop_timeout_remaining(&ses->t) / 1000);
+
+	if (acls) {
+		c = blobmsg_open_table(&buf, "acls");
+		rpc_session_dump_acls(ses, &buf);
+		blobmsg_close_table(&buf, c);
+	}
 
 	c = blobmsg_open_table(&buf, "data");
 	rpc_session_dump_data(ses, &buf);
@@ -222,7 +228,7 @@ static void
 rpc_session_dump(struct rpc_session *ses, struct ubus_context *ctx,
                  struct ubus_request_data *req)
 {
-	rpc_session_to_blob(ses);
+	rpc_session_to_blob(ses, true);
 
 	ubus_send_reply(ctx, req, buf.head);
 }
@@ -1296,7 +1302,7 @@ void rpc_session_freeze(void)
 			continue;
 
 		snprintf(path, sizeof(path) - 1, RPC_SESSION_DIRECTORY "/%s", ses->id);
-		rpc_session_to_blob(ses);
+		rpc_session_to_blob(ses, false);
 		rpc_blob_to_file(path, buf.head);
 	}
 }
