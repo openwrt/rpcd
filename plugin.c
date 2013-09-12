@@ -194,7 +194,7 @@ rpc_plugin_parse_signature(struct blob_attr *sig, struct ubus_method *method)
 	struct blob_attr *attr;
 	struct blobmsg_policy *policy = NULL;
 
-	if (!sig || blob_id(sig) != BLOBMSG_TYPE_TABLE)
+	if (!sig || blobmsg_type(sig) != BLOBMSG_TYPE_TABLE)
 		return false;
 
 	n_attr = 0;
@@ -213,7 +213,7 @@ rpc_plugin_parse_signature(struct blob_attr *sig, struct ubus_method *method)
 
 		blobmsg_for_each_attr(attr, sig, rem)
 		{
-			type = blob_id(attr);
+			type = blobmsg_type(attr);
 
 			if (type == BLOBMSG_TYPE_INT32)
 			{
