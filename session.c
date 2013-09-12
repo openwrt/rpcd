@@ -97,7 +97,6 @@ enum {
 	RPC_DUMP_SID,
 	RPC_DUMP_TIMEOUT,
 	RPC_DUMP_EXPIRES,
-	RPC_DUMP_ACLS,
 	RPC_DUMP_DATA,
 	__RPC_DUMP_MAX,
 };
@@ -105,7 +104,6 @@ static const struct blobmsg_policy dump_policy[__RPC_DUMP_MAX] = {
 	[RPC_DUMP_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
 	[RPC_DUMP_TIMEOUT] = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
 	[RPC_DUMP_EXPIRES] = { .name = "expires", .type = BLOBMSG_TYPE_INT32 },
-	[RPC_DUMP_ACLS] = { .name = "acls", .type = BLOBMSG_TYPE_TABLE },
 	[RPC_DUMP_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
 };
 
@@ -214,10 +212,6 @@ rpc_session_to_blob(struct rpc_session *ses)
 	blobmsg_add_string(&buf, "sid", ses->id);
 	blobmsg_add_u32(&buf, "timeout", ses->timeout);
 	blobmsg_add_u32(&buf, "expires", uloop_timeout_remaining(&ses->t) / 1000);
-
-	c = blobmsg_open_table(&buf, "acls");
-	rpc_session_dump_acls(ses, &buf);
-	blobmsg_close_table(&buf, c);
 
 	c = blobmsg_open_table(&buf, "data");
 	rpc_session_dump_data(ses, &buf);
@@ -837,6 +831,11 @@ rpc_login_test_login(struct uci_context *uci,
 		if (strcmp(ptr.o->v.string, username))
 			continue;
 
+		/* If password is NULL, we're restoring ACLs for an existing session,
+		 * in this case do not check the password again. */
+		if (!password)
+			return ptr.s;
+
 		/* test for matching password */
 		ptr.option = "password";
 		ptr.o = NULL;
@@ -1174,11 +1173,13 @@ fail:
 }
 
 static bool
-rpc_session_from_blob(struct blob_attr *attr)
+rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr)
 {
-	int i, rem, rem2, rem3;
+	int i, rem;
+	const char *user = NULL;
 	struct rpc_session *ses;
-	struct blob_attr *tb[__RPC_DUMP_MAX], *scope, *object, *function;
+	struct uci_section *login;
+	struct blob_attr *tb[__RPC_DUMP_MAX], *data;
 
 	blobmsg_parse(dump_policy, __RPC_DUMP_MAX, tb,
 	              blob_data(attr), blob_len(attr));
@@ -1196,18 +1197,17 @@ rpc_session_from_blob(struct blob_attr *attr)
 
 	ses->timeout = blobmsg_get_u32(tb[RPC_DUMP_TIMEOUT]);
 
-	blobmsg_for_each_attr(scope, tb[RPC_DUMP_ACLS], rem) {
-		blobmsg_for_each_attr(object, scope, rem2) {
-			blobmsg_for_each_attr(function, object, rem3) {
-				rpc_session_grant(ses, NULL, blobmsg_name(scope),
-				                             blobmsg_name(object),
-				                             blobmsg_data(function));
-			}
-		}
+	blobmsg_for_each_attr(data, tb[RPC_DUMP_DATA], rem) {
+		rpc_session_set(ses, blobmsg_name(data), data);
+
+		if (!strcmp(blobmsg_name(data), "username"))
+			user = blobmsg_get_string(data);
 	}
 
-	blobmsg_for_each_attr(object, tb[RPC_DUMP_DATA], rem) {
-		rpc_session_set(ses, blobmsg_name(object), object);
+	if (uci && user) {
+		login = rpc_login_test_login(uci, user, NULL);
+		if (login)
+			rpc_login_setup_acls(ses, login);
 	}
 
 	avl_insert(&sessions, &ses->avl);
@@ -1307,10 +1307,16 @@ void rpc_session_thaw(void)
 	char path[PATH_MAX];
 	struct dirent *e;
 	struct blob_attr *attr;
+	struct uci_context *uci;
 
 	d = opendir(RPC_SESSION_DIRECTORY);
 
 	if (!d)
+		return;
+
+	uci = uci_alloc_context();
+
+	if (!uci)
 		return;
 
 	while ((e = readdir(d)) != NULL) {
@@ -1323,7 +1329,7 @@ void rpc_session_thaw(void)
 		attr = rpc_blob_from_file(path);
 
 		if (attr) {
-			rpc_session_from_blob(attr);
+			rpc_session_from_blob(uci, attr);
 			free(attr);
 		}
 
@@ -1331,4 +1337,6 @@ void rpc_session_thaw(void)
 	}
 
 	closedir(d);
+
+	uci_free_context(uci);
 }
