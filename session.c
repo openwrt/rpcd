@@ -44,7 +44,7 @@ static const struct blobmsg_policy new_policy = {
 };
 
 static const struct blobmsg_policy sid_policy = {
-	.name = "sid", .type = BLOBMSG_TYPE_STRING
+	.name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING
 };
 
 enum {
@@ -53,7 +53,7 @@ enum {
 	__RPC_SS_MAX,
 };
 static const struct blobmsg_policy set_policy[__RPC_SS_MAX] = {
-	[RPC_SS_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SS_SID] = { .name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SS_VALUES] = { .name = "values", .type = BLOBMSG_TYPE_TABLE },
 };
 
@@ -63,7 +63,7 @@ enum {
 	__RPC_SG_MAX,
 };
 static const struct blobmsg_policy get_policy[__RPC_SG_MAX] = {
-	[RPC_SG_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SG_SID] = { .name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SG_KEYS] = { .name = "keys", .type = BLOBMSG_TYPE_ARRAY },
 };
 
@@ -74,7 +74,7 @@ enum {
 	__RPC_SA_MAX,
 };
 static const struct blobmsg_policy acl_policy[__RPC_SA_MAX] = {
-	[RPC_SA_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SA_SID] = { .name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SA_SCOPE] = { .name = "scope", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SA_OBJECTS] = { .name = "objects", .type = BLOBMSG_TYPE_ARRAY },
 };
@@ -87,7 +87,7 @@ enum {
 	__RPC_SP_MAX,
 };
 static const struct blobmsg_policy perm_policy[__RPC_SP_MAX] = {
-	[RPC_SP_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SP_SID] = { .name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SP_SCOPE] = { .name = "scope", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SP_OBJECT] = { .name = "object", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SP_FUNCTION] = { .name = "function", .type = BLOBMSG_TYPE_STRING },
@@ -101,7 +101,7 @@ enum {
 	__RPC_DUMP_MAX,
 };
 static const struct blobmsg_policy dump_policy[__RPC_DUMP_MAX] = {
-	[RPC_DUMP_SID] = { .name = "sid", .type = BLOBMSG_TYPE_STRING },
+	[RPC_DUMP_SID] = { .name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING },
 	[RPC_DUMP_TIMEOUT] = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
 	[RPC_DUMP_EXPIRES] = { .name = "expires", .type = BLOBMSG_TYPE_INT32 },
 	[RPC_DUMP_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
@@ -209,7 +209,7 @@ rpc_session_to_blob(struct rpc_session *ses, bool acls)
 
 	blob_buf_init(&buf, 0);
 
-	blobmsg_add_string(&buf, "sid", ses->id);
+	blobmsg_add_string(&buf, "ubus_rpc_session", ses->id);
 	blobmsg_add_u32(&buf, "timeout", ses->timeout);
 	blobmsg_add_u32(&buf, "expires", uloop_timeout_remaining(&ses->t) / 1000);
 
