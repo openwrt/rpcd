@@ -682,6 +682,7 @@ rpc_uci_merge_set(struct blob_attr *opt, struct uci_ptr *ptr)
 
 	ptr->o = NULL;
 	ptr->option = blobmsg_name(opt);
+	ptr->value = NULL;
 
 	if (rpc_uci_lookup(ptr) || !ptr->s)
 		return;
