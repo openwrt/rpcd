@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 2.6)
 INCLUDE(CheckFunctionExists)
 
 PROJECT(rpcd C)
-ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations -Iinclude)
+ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations)
+INCLUDE_DIRECTORIES(include)
 
 OPTION(FILE_SUPPORT "File plugin support" ON)
 OPTION(IWINFO_SUPPORT "libiwinfo plugin support" ON)
