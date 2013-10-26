@@ -1188,6 +1188,8 @@ rpc_blob_from_file(const char *path)
 	if (len != blob_pad_len(&head))
 		goto fail;
 
+	close(fd);
+
 	return attr;
 
 fail:
