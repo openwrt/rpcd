@@ -520,9 +520,8 @@ rpc_uci_dump_package(struct uci_package *p, const char *name,
 
 
 static int
-rpc_uci_get(struct ubus_context *ctx, struct ubus_object *obj,
-            struct ubus_request_data *req, const char *method,
-            struct blob_attr *msg)
+rpc_uci_getcommon(struct ubus_context *ctx, struct ubus_request_data *req,
+                  struct blob_attr *msg, bool use_state)
 {
 	struct blob_attr *tb[__RPC_G_MAX];
 	struct uci_package *p = NULL;
@@ -538,6 +537,9 @@ rpc_uci_get(struct ubus_context *ctx, struct ubus_object *obj,
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	ptr.package = blobmsg_data(tb[RPC_G_CONFIG]);
+
+	if (use_state)
+		uci_set_savedir(cursor, "/var/state");
 
 	if (uci_load(cursor, ptr.package, &p))
 		return rpc_uci_status();
@@ -579,6 +581,22 @@ out:
 	uci_unload(cursor, p);
 
 	return rpc_uci_status();
+}
+
+static int
+rpc_uci_get(struct ubus_context *ctx, struct ubus_object *obj,
+            struct ubus_request_data *req, const char *method,
+            struct blob_attr *msg)
+{
+	return rpc_uci_getcommon(ctx, req, msg, false);
+}
+
+static int
+rpc_uci_state(struct ubus_context *ctx, struct ubus_object *obj,
+              struct ubus_request_data *req, const char *method,
+              struct blob_attr *msg)
+{
+	return rpc_uci_getcommon(ctx, req, msg, true);
 }
 
 static int
@@ -1444,6 +1462,7 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 	static const struct ubus_method uci_methods[] = {
 		{ .name = "configs", .handler = rpc_uci_configs },
 		UBUS_METHOD("get",      rpc_uci_get,      rpc_uci_get_policy),
+		UBUS_METHOD("state",    rpc_uci_state,    rpc_uci_get_policy),
 		UBUS_METHOD("add",      rpc_uci_add,      rpc_uci_add_policy),
 		UBUS_METHOD("set",      rpc_uci_set,      rpc_uci_set_policy),
 		UBUS_METHOD("delete",   rpc_uci_delete,   rpc_uci_delete_policy),
