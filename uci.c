@@ -1028,33 +1028,73 @@ rpc_uci_changes(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__RPC_C_MAX];
 	struct uci_package *p = NULL;
 	struct uci_element *e;
-	void *c;
+	char **configs;
+	void *c, *d;
+	int i;
 
 	blobmsg_parse(rpc_uci_config_policy, __RPC_C_MAX, tb,
 	              blob_data(msg), blob_len(msg));
 
-	if (!tb[RPC_C_CONFIG])
-		return UBUS_STATUS_INVALID_ARGUMENT;
+	if (tb[RPC_C_CONFIG])
+	{
+		if (!rpc_uci_read_access(tb[RPC_C_SESSION], tb[RPC_C_CONFIG]))
+			return UBUS_STATUS_PERMISSION_DENIED;
 
-	if (!rpc_uci_read_access(tb[RPC_C_SESSION], tb[RPC_C_CONFIG]))
-		return UBUS_STATUS_PERMISSION_DENIED;
+		if (uci_load(cursor, blobmsg_data(tb[RPC_C_CONFIG]), &p))
+			return rpc_uci_status();
 
-	if (uci_load(cursor, blobmsg_data(tb[RPC_C_CONFIG]), &p))
+		blob_buf_init(&buf, 0);
+		c = blobmsg_open_array(&buf, "changes");
+
+		uci_foreach_element(&p->saved_delta, e)
+			rpc_uci_dump_change(uci_to_delta(e));
+
+		blobmsg_close_array(&buf, c);
+
+		uci_unload(cursor, p);
+
+		ubus_send_reply(ctx, req, buf.head);
+
+		return rpc_uci_status();
+	}
+
+	rpc_uci_set_savedir(tb[RPC_C_SESSION]);
+
+	if (uci_list_configs(cursor, &configs))
 		return rpc_uci_status();
 
 	blob_buf_init(&buf, 0);
-	c = blobmsg_open_array(&buf, "changes");
 
-	uci_foreach_element(&p->saved_delta, e)
-		rpc_uci_dump_change(uci_to_delta(e));
+	c = blobmsg_open_table(&buf, "changes");
 
-	blobmsg_close_array(&buf, c);
+	for (i = 0; configs[i]; i++)
+	{
+		if (tb[RPC_C_SESSION] &&
+		    !rpc_session_access(blobmsg_data(tb[RPC_C_SESSION]), "uci",
+		                        configs[i], "read"))
+			continue;
+
+		if (uci_load(cursor, configs[i], &p))
+			continue;
+
+		if (!uci_list_empty(&p->saved_delta))
+		{
+			d = blobmsg_open_array(&buf, configs[i]);
+
+			uci_foreach_element(&p->saved_delta, e)
+				rpc_uci_dump_change(uci_to_delta(e));
+
+			blobmsg_close_array(&buf, d);
+		}
+
+		uci_unload(cursor, p);
+	}
+
+	blobmsg_close_table(&buf, c);
 
 	ubus_send_reply(ctx, req, buf.head);
 
-	uci_unload(cursor, p);
-
-	return rpc_uci_status();
+	return 0;
 }
 
 static void
