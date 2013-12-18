@@ -1124,7 +1124,7 @@ rpc_uci_revert_commit(struct ubus_context *ctx, struct blob_attr *msg, bool comm
 	struct uci_package *p = NULL;
 	struct uci_ptr ptr = { 0 };
 
-	if (!apply_running)
+	if (apply_running)
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	blobmsg_parse(rpc_uci_config_policy, __RPC_C_MAX, tb,
