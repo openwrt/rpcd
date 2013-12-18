@@ -1144,8 +1144,8 @@ rpc_uci_revert_commit(struct ubus_context *ctx, struct blob_attr *msg, bool comm
 		{
 			uci_commit(cursor, &p, false);
 			uci_unload(cursor, p);
+			rpc_uci_trigger_event(ctx, blobmsg_get_string(tb[RPC_C_CONFIG]));
 		}
-		rpc_uci_trigger_event(ctx, blobmsg_get_string(tb[RPC_C_CONFIG]));
 	}
 	else
 	{
