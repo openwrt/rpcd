@@ -1382,7 +1382,7 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 
 		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/*", sid);
 		if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
-			return -1;
+			return UBUS_STATUS_NOT_FOUND;
 
 		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", sid);
 
@@ -1409,20 +1409,31 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 
 		globfree(&gl);
 
-		apply_running = true;
-		apply_timer.cb = rpc_uci_apply_timeout;
-		uloop_timeout_set(&apply_timer, timeout * 1000);
-		apply_ctx = ctx;
+		if (rollback) {
+			apply_running = true;
+			apply_timer.cb = rpc_uci_apply_timeout;
+			uloop_timeout_set(&apply_timer, timeout * 1000);
+			apply_ctx = ctx;
+		}
 	}
 
-	if (apply_running && !rollback) {
-		rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
-		rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
+	return 0;
+}
 
-		uloop_timeout_cancel(&apply_timer);
-		apply_running = false;
-		apply_ctx = NULL;
-	}
+static int
+rpc_uci_confirm(struct ubus_context *ctx, struct ubus_object *obj,
+                struct ubus_request_data *req, const char *method,
+                struct blob_attr *msg)
+{
+	if (!apply_running)
+		return UBUS_STATUS_NO_DATA;
+
+	rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
+	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
+
+	uloop_timeout_cancel(&apply_timer);
+	apply_running = false;
+	apply_ctx = NULL;
 
 	return 0;
 }
@@ -1442,7 +1453,7 @@ rpc_uci_rollback(struct ubus_context *ctx, struct ubus_object *obj,
 	              blob_data(msg), blob_len(msg));
 
 	if (!apply_running)
-		return UBUS_STATUS_PERMISSION_DENIED;
+		return UBUS_STATUS_NO_DATA;
 
 	if (!tb[RPC_B_SESSION])
 		return UBUS_STATUS_INVALID_ARGUMENT;
@@ -1451,7 +1462,7 @@ rpc_uci_rollback(struct ubus_context *ctx, struct ubus_object *obj,
 
 	snprintf(tmp, sizeof(tmp), "%s/*", RPC_SNAPSHOT_FILES);
 	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
-		return -1;
+		return UBUS_STATUS_NOT_FOUND;
 
 	ret = rpc_uci_apply_access(sid, &gl);
 	if (ret) {
@@ -1512,6 +1523,7 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 		UBUS_METHOD("revert",   rpc_uci_revert,   rpc_uci_config_policy),
 		UBUS_METHOD("commit",   rpc_uci_commit,   rpc_uci_config_policy),
 		UBUS_METHOD("apply",    rpc_uci_apply,    rpc_uci_apply_policy),
+		UBUS_METHOD("confirm",  rpc_uci_confirm,  rpc_uci_rollback_policy),
 		UBUS_METHOD("rollback", rpc_uci_rollback, rpc_uci_rollback_policy),
 	};
 
