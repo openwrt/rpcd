@@ -1392,6 +1392,10 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 			return ret;
 		}
 
+		/* copy SID early because rpc_uci_apply_config() will clobber buf */
+		if (rollback)
+			strncpy(apply_sid, sid, RPC_SID_LEN);
+
 		for (i = 0; i < gl.gl_pathc; i++) {
 			char *config = basename(gl.gl_pathv[i]);
 			struct stat s;
@@ -1410,7 +1414,6 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 		globfree(&gl);
 
 		if (rollback) {
-			strncpy(apply_sid, sid, RPC_SID_LEN);
 			apply_timer.cb = rpc_uci_apply_timeout;
 			uloop_timeout_set(&apply_timer, timeout * 1000);
 			apply_ctx = ctx;
@@ -1438,6 +1441,8 @@ rpc_uci_confirm(struct ubus_context *ctx, struct ubus_object *obj,
 
 	if (!apply_sid[0])
 		return UBUS_STATUS_NO_DATA;
+
+	printf("CMP=%s/%s\n", apply_sid, sid);
 
 	if (strcmp(apply_sid, sid))
 		return UBUS_STATUS_PERMISSION_DENIED;
