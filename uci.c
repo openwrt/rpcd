@@ -1442,8 +1442,6 @@ rpc_uci_confirm(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!apply_sid[0])
 		return UBUS_STATUS_NO_DATA;
 
-	printf("CMP=%s/%s\n", apply_sid, sid);
-
 	if (strcmp(apply_sid, sid))
 		return UBUS_STATUS_PERMISSION_DENIED;
 
