@@ -156,14 +156,14 @@ static const struct blobmsg_policy rpc_uci_config_policy[__RPC_C_MAX] = {
 };
 
 enum {
-	RPC_T_COMMIT,
+	RPC_T_ROLLBACK,
 	RPC_T_TIMEOUT,
 	RPC_T_SESSION,
 	__RPC_T_MAX,
 };
 
 static const struct blobmsg_policy rpc_uci_apply_policy[__RPC_T_MAX] = {
-	[RPC_T_COMMIT]   = { .name = "commit",  .type = BLOBMSG_TYPE_BOOL },
+	[RPC_T_ROLLBACK] = { .name = "rollback", .type = BLOBMSG_TYPE_BOOL },
 	[RPC_T_TIMEOUT]  = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
 	[RPC_T_SESSION]  = { .name = "ubus_rpc_session",
 	                                        .type = BLOBMSG_TYPE_STRING },
@@ -1351,7 +1351,7 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__RPC_T_MAX];
 	int timeout = RPC_APPLY_TIMEOUT;
 	char tmp[PATH_MAX];
-	bool commit = false;
+	bool rollback = false;
 	int ret, i;
 	char *sid;
 	glob_t gl;
@@ -1359,10 +1359,10 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_parse(rpc_uci_apply_policy, __RPC_T_MAX, tb,
 	              blob_data(msg), blob_len(msg));
 
-	if (tb[RPC_T_COMMIT])
-		commit = blobmsg_get_bool(tb[RPC_T_COMMIT]);
+	if (tb[RPC_T_ROLLBACK])
+		rollback = blobmsg_get_bool(tb[RPC_T_ROLLBACK]);
 
-	if (apply_running && !commit)
+	if (apply_running && rollback)
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	if (!tb[RPC_T_SESSION])
@@ -1415,7 +1415,7 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 		apply_ctx = ctx;
 	}
 
-	if (apply_running && commit) {
+	if (apply_running && !rollback) {
 		rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
 		rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
 
