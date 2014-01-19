@@ -580,22 +580,31 @@ rpc_handle_access(struct ubus_context *ctx, struct ubus_object *obj,
 
 	blobmsg_parse(perm_policy, __RPC_SP_MAX, tb, blob_data(msg), blob_len(msg));
 
-	if (!tb[RPC_SP_SID] || !tb[RPC_SP_OBJECT] || !tb[RPC_SP_FUNCTION])
+	if (!tb[RPC_SP_SID])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
 	ses = rpc_session_get(blobmsg_data(tb[RPC_SP_SID]));
 	if (!ses)
 		return UBUS_STATUS_NOT_FOUND;
 
-	if (tb[RPC_SP_SCOPE])
-		scope = blobmsg_data(tb[RPC_SP_SCOPE]);
-
-	allow = rpc_session_acl_allowed(ses, scope,
-									blobmsg_data(tb[RPC_SP_OBJECT]),
-									blobmsg_data(tb[RPC_SP_FUNCTION]));
-
 	blob_buf_init(&buf, 0);
-	blobmsg_add_u8(&buf, "access", allow);
+
+	if (tb[RPC_SP_OBJECT] && tb[RPC_SP_FUNCTION])
+	{
+		if (tb[RPC_SP_SCOPE])
+			scope = blobmsg_data(tb[RPC_SP_SCOPE]);
+
+		allow = rpc_session_acl_allowed(ses, scope,
+		                                blobmsg_data(tb[RPC_SP_OBJECT]),
+		                                blobmsg_data(tb[RPC_SP_FUNCTION]));
+
+		blobmsg_add_u8(&buf, "access", allow);
+	}
+	else
+	{
+		rpc_session_dump_acls(ses, &buf);
+	}
+
 	ubus_send_reply(ctx, req, buf.head);
 
 	return 0;
