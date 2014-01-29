@@ -381,14 +381,14 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 
 			e = blobmsg_open_table(&buf, "rx");
 			blobmsg_add_u32(&buf, "rate", a->rx_rate.rate);
-			blobmsg_add_u32(&buf, "mcs",  a->rx_rate.mcs);
+			blobmsg_add_u32(&buf, "mcs", a->rx_rate.mcs);
 			blobmsg_add_u8(&buf, "40mhz", a->rx_rate.is_40mhz);
 			blobmsg_add_u8(&buf, "short_gi", a->rx_rate.is_short_gi);
 			blobmsg_close_table(&buf, e);
 
 			e = blobmsg_open_table(&buf, "tx");
 			blobmsg_add_u32(&buf, "rate", a->tx_rate.rate);
-			blobmsg_add_u32(&buf, "mcs",  a->tx_rate.mcs);
+			blobmsg_add_u32(&buf, "mcs", a->tx_rate.mcs);
 			blobmsg_add_u8(&buf, "40mhz", a->tx_rate.is_40mhz);
 			blobmsg_add_u8(&buf, "short_gi", a->tx_rate.is_short_gi);
 			blobmsg_close_table(&buf, e);

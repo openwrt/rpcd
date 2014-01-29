@@ -38,10 +38,10 @@
 #include <rpcd/session.h>
 
 /* location of plugin executables */
-#define RPC_PLUGIN_DIRECTORY        "/usr/libexec/rpcd"
+#define RPC_PLUGIN_DIRECTORY	"/usr/libexec/rpcd"
 
 /* location of plugin libraries */
-#define RPC_LIBRARY_DIRECTORY       "/usr/lib/rpcd"
+#define RPC_LIBRARY_DIRECTORY	"/usr/lib/rpcd"
 
 struct rpc_daemon_ops {
     bool (*session_access)(const char *sid, const char *scope,

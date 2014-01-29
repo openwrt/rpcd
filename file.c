@@ -87,7 +87,7 @@ enum {
 };
 
 static const struct blobmsg_policy rpc_exec_policy[__RPC_E_MAX] = {
-	[RPC_E_CMD] = { .name = "command", .type = BLOBMSG_TYPE_STRING },
+	[RPC_E_CMD]  = { .name = "command", .type = BLOBMSG_TYPE_STRING },
 	[RPC_E_PARM] = { .name = "params",  .type = BLOBMSG_TYPE_ARRAY  },
 	[RPC_E_ENV]  = { .name = "env",     .type = BLOBMSG_TYPE_TABLE  },
 };
@@ -457,7 +457,7 @@ rpc_file_exec_epipe_state_cb(struct ustream *s)
 
 static int
 rpc_file_exec_run(const char *cmd,
-			      const struct blob_attr *arg, const struct blob_attr *env,
+                  const struct blob_attr *arg, const struct blob_attr *env,
                   struct ubus_context *ctx, struct ubus_request_data *req)
 {
 	pid_t pid;
@@ -580,7 +580,7 @@ rpc_file_exec(struct ubus_context *ctx, struct ubus_object *obj,
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
 	return rpc_file_exec_run(blobmsg_data(tb[RPC_E_CMD]),
-					         tb[RPC_E_PARM], tb[RPC_E_ENV], ctx, req);
+					      tb[RPC_E_PARM], tb[RPC_E_ENV], ctx, req);
 }
 
 
