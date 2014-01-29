@@ -612,6 +612,6 @@ rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 	return ubus_add_object(ctx, &obj);
 }
 
-const struct rpc_plugin rpc_plugin = {
+struct rpc_plugin rpc_plugin = {
 	.init = rpc_file_api_init
 };
