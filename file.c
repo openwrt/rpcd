@@ -214,8 +214,14 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 	if ((fd = open(blobmsg_data(tb[RPC_F_PATH]), O_CREAT | O_TRUNC | O_WRONLY)) < 0)
 		return rpc_errno_status();
 
-	write(fd, blobmsg_data(tb[RPC_F_DATA]), blobmsg_data_len(tb[RPC_F_DATA]));
+	if (write(fd, blobmsg_data(tb[RPC_F_DATA]), blobmsg_data_len(tb[RPC_F_DATA])) < 0)
+		return rpc_errno_status();
+
+	if (fsync(fd) < 0)
+		return rpc_errno_status();
+
 	close(fd);
+	sync();
 
 	return 0;
 }
