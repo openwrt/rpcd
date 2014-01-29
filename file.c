@@ -203,17 +203,15 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
                struct blob_attr *msg)
 {
 	int fd;
-	char *path;
-	struct stat s;
-	struct blob_attr **tb;
+	struct blob_attr *tb[__RPC_F_MAX];
 
-	if (!(tb = rpc_check_path(msg, &path, &s)))
-		return rpc_errno_status();
+	blobmsg_parse(rpc_file_policy, __RPC_F_MAX, tb,
+	              blob_data(msg), blob_len(msg));
 
-	if (!tb[RPC_F_DATA])
+	if (!tb[RPC_F_PATH] || !tb[RPC_F_DATA])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
-	if ((fd = open(path, O_WRONLY)) < 0)
+	if ((fd = open(blobmsg_data(tb[RPC_F_PATH]), O_CREAT | O_TRUNC | O_WRONLY)) < 0)
 		return rpc_errno_status();
 
 	write(fd, blobmsg_data(tb[RPC_F_DATA]), blobmsg_data_len(tb[RPC_F_DATA]));
