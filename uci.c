@@ -1236,11 +1236,8 @@ static int
 rpc_uci_apply_config(struct ubus_context *ctx, char *config)
 {
 	struct uci_package *p = NULL;
-	struct uci_ptr ptr = { 0 };
 
-	ptr.package = config;
-
-	if (!uci_load(cursor, ptr.package, &p)) {
+	if (!uci_load(cursor, config, &p)) {
 		uci_commit(cursor, &p, false);
 		uci_unload(cursor, p);
 	}
