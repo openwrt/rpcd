@@ -26,6 +26,7 @@
 #include <fnmatch.h>
 #include <glob.h>
 #include <uci.h>
+#include <limits.h>
 
 #ifdef HAVE_SHADOW
 #include <shadow.h>
