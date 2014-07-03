@@ -108,12 +108,9 @@ rpc_plugin_call_finish_cb(struct blob_buf *blob, int stat, void *priv)
 	{
 		if (c->obj)
 		{
-			if (json_object_get_type(c->obj) == json_type_object ||
-			    json_object_get_type(c->obj) == json_type_array)
-			{
-				blobmsg_add_json_element(blob, NULL, c->obj);
+			if (json_object_get_type(c->obj) == json_type_object &&
+			    blobmsg_add_object(blob, c->obj))
 				rv = UBUS_STATUS_OK;
-			}
 
 			json_object_put(c->obj);
 		}
