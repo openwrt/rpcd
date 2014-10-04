@@ -630,7 +630,7 @@ static int
 rpc_iwinfo_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method iwinfo_methods[] = {
-		{ .name = "devices", .handler = rpc_iwinfo_devices },
+		UBUS_METHOD_NOARG("devices", rpc_iwinfo_devices),
 		UBUS_METHOD("info",        rpc_iwinfo_info,        rpc_device_policy),
 		UBUS_METHOD("scan",        rpc_iwinfo_scan,        rpc_device_policy),
 		UBUS_METHOD("assoclist",   rpc_iwinfo_assoclist,   rpc_device_policy),
