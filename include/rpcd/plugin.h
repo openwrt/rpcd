@@ -33,6 +33,7 @@
 
 #include <libubox/blobmsg_json.h>
 #include <libubus.h>
+#include <json/json.h>
 
 #include <rpcd/exec.h>
 #include <rpcd/session.h>
