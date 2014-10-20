@@ -206,6 +206,9 @@ rpc_iwinfo_call_hwmodes(const char *name)
 	{
 		c = blobmsg_open_array(&buf, name);
 
+		if (modes & IWINFO_80211_AC)
+			blobmsg_add_string(&buf, NULL, "ac");
+
 		if (modes & IWINFO_80211_A)
 			blobmsg_add_string(&buf, NULL, "a");
 
