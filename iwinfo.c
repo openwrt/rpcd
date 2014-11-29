@@ -21,6 +21,11 @@
 #include <libubus.h>
 #include <iwinfo.h>
 #include <iwinfo/utils.h>
+#include <net/ethernet.h>
+
+#ifdef linux
+#include <netinet/ether.h>
+#endif
 
 #include <rpcd/plugin.h>
 
@@ -38,6 +43,28 @@ static const struct blobmsg_policy rpc_device_policy[__RPC_D_MAX] = {
 	[RPC_D_DEVICE] = { .name = "device", .type = BLOBMSG_TYPE_STRING },
 };
 
+enum {
+	RPC_A_DEVICE,
+	RPC_A_MACADDR,
+	__RPC_A_MAX,
+};
+
+static const struct blobmsg_policy rpc_assoclist_policy[__RPC_A_MAX] = {
+	[RPC_A_DEVICE] = { .name = "device", .type = BLOBMSG_TYPE_STRING },
+	[RPC_A_MACADDR] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
+};
+
+static int
+__rpc_iwinfo_open(struct blob_attr *device)
+{
+	if (!device)
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	ifname = blobmsg_data(device);
+	iw = iwinfo_backend(ifname);
+
+	return iw ? UBUS_STATUS_OK : UBUS_STATUS_NOT_FOUND;
+}
 
 static int
 rpc_iwinfo_open(struct blob_attr *msg)
@@ -47,13 +74,7 @@ rpc_iwinfo_open(struct blob_attr *msg)
 	blobmsg_parse(rpc_device_policy, __RPC_D_MAX, tb,
 	              blob_data(msg), blob_len(msg));
 
-	if (!tb[RPC_D_DEVICE])
-		return UBUS_STATUS_INVALID_ARGUMENT;
-
-	ifname = blobmsg_data(tb[RPC_D_DEVICE]);
-	iw = iwinfo_backend(ifname);
-
-	return iw ? UBUS_STATUS_OK : UBUS_STATUS_NOT_FOUND;
+	return __rpc_iwinfo_open(tb[RPC_D_DEVICE]);
 }
 
 static void
@@ -355,23 +376,36 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 	char mac[18];
 	char res[IWINFO_BUFSIZE];
 	struct iwinfo_assoclist_entry *a;
+	struct ether_addr *macaddr = NULL;
 	void *c, *d, *e;
+	struct blob_attr *tb[__RPC_A_MAX];
+	bool found = false;
 
-	rv = rpc_iwinfo_open(msg);
+	blobmsg_parse(rpc_assoclist_policy, __RPC_A_MAX, tb,
+	              blob_data(msg), blob_len(msg));
 
+	rv = __rpc_iwinfo_open(tb[RPC_A_DEVICE]);
 	if (rv)
 		return rv;
 
+	if (tb[RPC_A_MACADDR])
+		macaddr = ether_aton(blobmsg_data(tb[RPC_A_MACADDR]));
+
 	blob_buf_init(&buf, 0);
 
-	c = blobmsg_open_array(&buf, "results");
+	if (!macaddr)
+		c = blobmsg_open_array(&buf, "results");
 
 	if (!iw->assoclist(ifname, res, &len) && (len > 0))
 	{
 		for (i = 0; i < len; i += sizeof(struct iwinfo_assoclist_entry))
 		{
 			a = (struct iwinfo_assoclist_entry *)&res[i];
-			d = blobmsg_open_table(&buf, NULL);
+
+			if (!macaddr)
+				d = blobmsg_open_table(&buf, NULL);
+			else if (memcmp(macaddr, a->mac, ETH_ALEN) != 0)
+				continue;
 
 			snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
 					 a->mac[0], a->mac[1], a->mac[2],
@@ -396,11 +430,18 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 			blobmsg_add_u8(&buf, "short_gi", a->tx_rate.is_short_gi);
 			blobmsg_close_table(&buf, e);
 
-			blobmsg_close_table(&buf, d);
+			found = true;
+			if (!macaddr)
+				blobmsg_close_table(&buf, d);
+			else
+				break;
 		}
 	}
 
-	blobmsg_close_array(&buf, c);
+	if (!macaddr)
+		blobmsg_close_array(&buf, c);
+	else if (!found)
+		return UBUS_STATUS_NOT_FOUND;
 
 	ubus_send_reply(ctx, req, buf.head);
 
@@ -636,7 +677,7 @@ rpc_iwinfo_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 		UBUS_METHOD_NOARG("devices", rpc_iwinfo_devices),
 		UBUS_METHOD("info",        rpc_iwinfo_info,        rpc_device_policy),
 		UBUS_METHOD("scan",        rpc_iwinfo_scan,        rpc_device_policy),
-		UBUS_METHOD("assoclist",   rpc_iwinfo_assoclist,   rpc_device_policy),
+		UBUS_METHOD("assoclist",   rpc_iwinfo_assoclist,   rpc_assoclist_policy),
 		UBUS_METHOD("freqlist",    rpc_iwinfo_freqlist,    rpc_device_policy),
 		UBUS_METHOD("txpowerlist", rpc_iwinfo_txpowerlist, rpc_device_policy),
 		UBUS_METHOD("countrylist", rpc_iwinfo_countrylist, rpc_device_policy),
