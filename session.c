@@ -40,12 +40,20 @@ static struct blob_buf buf;
 static LIST_HEAD(create_callbacks);
 static LIST_HEAD(destroy_callbacks);
 
-static const struct blobmsg_policy new_policy = {
-	.name = "timeout", .type = BLOBMSG_TYPE_INT32
+enum {
+	RPC_SN_TIMEOUT,
+	__RPC_SN_MAX,
+};
+static const struct blobmsg_policy new_policy[__RPC_SN_MAX] = {
+	[RPC_SN_TIMEOUT] = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
 };
 
-static const struct blobmsg_policy sid_policy = {
-	.name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING
+enum {
+	RPC_SI_SID,
+	__RPC_SI_MAX,
+};
+static const struct blobmsg_policy sid_policy[__RPC_SI_MAX] = {
+	[RPC_SI_SID] = { .name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -344,7 +352,7 @@ rpc_handle_create(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb;
 	int timeout = RPC_DEFAULT_SESSION_TIMEOUT;
 
-	blobmsg_parse(&new_policy, 1, &tb, blob_data(msg), blob_len(msg));
+	blobmsg_parse(new_policy, __RPC_SN_MAX, &tb, blob_data(msg), blob_len(msg));
 	if (tb)
 		timeout = blobmsg_get_u32(tb);
 
@@ -363,7 +371,7 @@ rpc_handle_list(struct ubus_context *ctx, struct ubus_object *obj,
 	struct rpc_session *ses;
 	struct blob_attr *tb;
 
-	blobmsg_parse(&sid_policy, 1, &tb, blob_data(msg), blob_len(msg));
+	blobmsg_parse(sid_policy, __RPC_SI_MAX, &tb, blob_data(msg), blob_len(msg));
 
 	if (!tb) {
 		avl_for_each_element(&sessions, ses, avl)
@@ -756,7 +764,7 @@ rpc_handle_destroy(struct ubus_context *ctx, struct ubus_object *obj,
 	struct rpc_session *ses;
 	struct blob_attr *tb;
 
-	blobmsg_parse(&sid_policy, 1, &tb, blob_data(msg), blob_len(msg));
+	blobmsg_parse(sid_policy, __RPC_SI_MAX, &tb, blob_data(msg), blob_len(msg));
 
 	if (!tb)
 		return UBUS_STATUS_INVALID_ARGUMENT;
@@ -1262,15 +1270,15 @@ int rpc_session_api_init(struct ubus_context *ctx)
 	struct rpc_session *ses;
 
 	static const struct ubus_method session_methods[] = {
-		UBUS_METHOD("create",  rpc_handle_create,  &new_policy),
-		UBUS_METHOD("list",    rpc_handle_list,    &sid_policy),
+		UBUS_METHOD("create",  rpc_handle_create,  new_policy),
+		UBUS_METHOD("list",    rpc_handle_list,    sid_policy),
 		UBUS_METHOD("grant",   rpc_handle_acl,     acl_policy),
 		UBUS_METHOD("revoke",  rpc_handle_acl,     acl_policy),
 		UBUS_METHOD("access",  rpc_handle_access,  perm_policy),
 		UBUS_METHOD("set",     rpc_handle_set,     set_policy),
 		UBUS_METHOD("get",     rpc_handle_get,     get_policy),
 		UBUS_METHOD("unset",   rpc_handle_unset,   get_policy),
-		UBUS_METHOD("destroy", rpc_handle_destroy, &sid_policy),
+		UBUS_METHOD("destroy", rpc_handle_destroy, sid_policy),
 		UBUS_METHOD("login",   rpc_handle_login,   login_policy),
 	};
 
