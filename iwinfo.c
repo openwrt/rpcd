@@ -54,6 +54,15 @@ static const struct blobmsg_policy rpc_assoclist_policy[__RPC_A_MAX] = {
 	[RPC_A_MACADDR] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
 };
 
+enum {
+	RPC_U_SECTION,
+	__RPC_U_MAX
+};
+
+static const struct blobmsg_policy rpc_uci_policy[__RPC_U_MAX] = {
+	[RPC_U_SECTION] = { .name = "section", .type = BLOBMSG_TYPE_STRING },
+};
+
 static int
 __rpc_iwinfo_open(struct blob_attr *device)
 {
@@ -632,6 +641,55 @@ rpc_iwinfo_countrylist(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 static int
+rpc_iwinfo_phyname(struct ubus_context *ctx, struct ubus_object *obj,
+                   struct ubus_request_data *req, const char *method,
+                   struct blob_attr *msg)
+{
+	int i;
+	bool found = false;
+	char res[IWINFO_BUFSIZE];
+	const struct iwinfo_ops *ops;
+	struct blob_attr *tb[__RPC_U_MAX];
+	const char *backends[] = {
+		"nl80211",
+		"madwifi",
+		"wl"
+	};
+
+	blobmsg_parse(rpc_uci_policy, __RPC_U_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_U_SECTION])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	for (i = 0; i < ARRAY_SIZE(backends); i++)
+	{
+		ops = iwinfo_backend_by_name(backends[i]);
+
+		if (!ops || !ops->lookup_phy)
+			continue;
+
+		if (!ops->lookup_phy(blobmsg_get_string(tb[RPC_U_SECTION]), res))
+		{
+			found = true;
+			break;
+		}
+	}
+
+	if (found)
+	{
+		blob_buf_init(&buf, 0);
+		blobmsg_add_string(&buf, "phyname", res);
+
+		ubus_send_reply(ctx, req, buf.head);
+	}
+
+	rpc_iwinfo_close();
+
+	return found ? UBUS_STATUS_OK : UBUS_STATUS_NOT_FOUND;
+}
+
+static int
 rpc_iwinfo_devices(struct ubus_context *ctx, struct ubus_object *obj,
                    struct ubus_request_data *req, const char *method,
                    struct blob_attr *msg)
@@ -681,6 +739,7 @@ rpc_iwinfo_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 		UBUS_METHOD("freqlist",    rpc_iwinfo_freqlist,    rpc_device_policy),
 		UBUS_METHOD("txpowerlist", rpc_iwinfo_txpowerlist, rpc_device_policy),
 		UBUS_METHOD("countrylist", rpc_iwinfo_countrylist, rpc_device_policy),
+		UBUS_METHOD("phyname",     rpc_iwinfo_phyname,     rpc_uci_policy),
 	};
 
 	static struct ubus_object_type iwinfo_type =
