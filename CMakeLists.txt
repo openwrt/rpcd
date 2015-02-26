@@ -23,7 +23,7 @@ ENDIF()
 
 FIND_LIBRARY(json NAMES json-c json)
 FIND_LIBRARY(crypt NAMES crypt)
-IF(crypt STREQUAL "LIBS-NOTFOUND")
+IF(crypt STREQUAL "crypt-NOTFOUND")
   SET(crypt "")
 ENDIF()
 
