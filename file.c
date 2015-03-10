@@ -267,6 +267,8 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 		blobmsg_close_table(&buf, d);
 	}
 
+	closedir(fd);
+
 	blobmsg_close_array(&buf, c);
 	ubus_send_reply(ctx, req, buf.head);
 	blob_buf_free(&buf);
