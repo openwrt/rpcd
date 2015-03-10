@@ -199,6 +199,7 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_string_buffer(&buf);
 
 	ubus_send_reply(ctx, req, buf.head);
+	blob_buf_free(&buf);
 	rv = UBUS_STATUS_OK;
 
 out:
@@ -268,6 +269,7 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 
 	blobmsg_close_array(&buf, c);
 	ubus_send_reply(ctx, req, buf.head);
+	blob_buf_free(&buf);
 
 	return 0;
 }
@@ -307,6 +309,7 @@ rpc_file_stat(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u32(&buf, "gid",   s.st_gid);
 
 	ubus_send_reply(ctx, req, buf.head);
+	blob_buf_free(&buf);
 
 	return 0;
 }
@@ -393,6 +396,7 @@ rpc_file_exec_reply(struct rpc_file_exec_context *c, int rv)
 		rpc_ustream_to_blobmsg(&c->epipe.stream, "stderr");
 
 		ubus_send_reply(c->context, &c->request, buf.head);
+		blob_buf_free(&buf);
 	}
 
 	ubus_complete_deferred_request(c->context, &c->request, rv);
