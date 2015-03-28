@@ -146,22 +146,28 @@ static const struct blobmsg_policy login_policy[__RPC_L_MAX] = {
 		    !fnmatch((_acl)->object, (_obj), FNM_NOESCAPE) &&		\
 		    !fnmatch((_acl)->function, (_func), FNM_NOESCAPE))
 
-static void
+static int
 rpc_random(char *dest)
 {
 	unsigned char buf[16] = { 0 };
 	FILE *f;
 	int i;
+	int ret;
 
 	f = fopen("/dev/urandom", "r");
 	if (!f)
-		return;
+		return -1;
 
-	fread(buf, 1, sizeof(buf), f);
+	ret = fread(buf, 1, sizeof(buf), f);
 	fclose(f);
+
+	if (ret < 0)
+		return ret;
 
 	for (i = 0; i < sizeof(buf); i++)
 		sprintf(dest + (i<<1), "%02x", buf[i]);
+
+	return 0;
 }
 
 static void
@@ -316,7 +322,8 @@ rpc_session_create(int timeout)
 	if (!ses)
 		return NULL;
 
-	rpc_random(ses->id);
+	if (rpc_random(ses->id))
+		return NULL;
 
 	ses->timeout = timeout;
 
