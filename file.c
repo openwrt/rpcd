@@ -27,6 +27,7 @@
 #include <sys/wait.h>
 #include <libubus.h>
 #include <libubox/blobmsg.h>
+#include <libubox/md5.h>
 #include <libubox/ustream.h>
 
 #include <rpcd/plugin.h>
@@ -234,6 +235,39 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 	sync();
 
 	return 0;
+}
+
+static int
+rpc_file_md5(struct ubus_context *ctx, struct ubus_object *obj,
+             struct ubus_request_data *req, const char *method,
+             struct blob_attr *msg)
+{ 
+	int rv, i;
+	char *path;
+	struct stat s;
+	uint8_t md5[16];
+	char *wbuf;
+
+	if (!rpc_check_path(msg, &path, &s))
+		return rpc_errno_status();
+
+	if (!S_ISREG(s.st_mode))
+		return UBUS_STATUS_NOT_SUPPORTED;
+
+	if ((rv = md5sum(path, md5)) <= 0)
+		return rpc_errno_status();
+
+	blob_buf_init(&buf, 0);
+	wbuf = blobmsg_alloc_string_buffer(&buf, "md5", 33);
+
+	for (i = 0; i < 16; i++)
+		sprintf(wbuf + (i * 2), "%02x", (uint8_t) md5[i]);
+
+	blobmsg_add_string_buffer(&buf);
+	ubus_send_reply(ctx, req, buf.head);
+	blob_buf_free(&buf);
+
+	return UBUS_STATUS_OK;
 }
 
 static int
@@ -611,6 +645,7 @@ rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 		UBUS_METHOD("write",   rpc_file_write, rpc_file_rw_policy),
 		UBUS_METHOD("list",    rpc_file_list,  rpc_file_r_policy),
 		UBUS_METHOD("stat",    rpc_file_stat,  rpc_file_r_policy),
+		UBUS_METHOD("md5",     rpc_file_md5,   rpc_file_r_policy),
 		UBUS_METHOD("exec",    rpc_file_exec,  rpc_exec_policy),
 	};
 
