@@ -29,6 +29,7 @@
 #include <libubox/blobmsg.h>
 #include <libubox/md5.h>
 #include <libubox/ustream.h>
+#include <libubox/utils.h>
 
 #include <rpcd/plugin.h>
 
@@ -79,14 +80,27 @@ static const struct blobmsg_policy rpc_file_r_policy[__RPC_F_R_MAX] = {
 };
 
 enum {
+	RPC_F_RB_PATH,
+	RPC_F_RB_BASE64,
+	__RPC_F_RB_MAX,
+};
+
+static const struct blobmsg_policy rpc_file_rb_policy[__RPC_F_RB_MAX] = {
+	[RPC_F_RB_PATH]   = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_RB_BASE64] = { .name = "base64", .type = BLOBMSG_TYPE_BOOL   },
+};
+
+enum {
 	RPC_F_RW_PATH,
 	RPC_F_RW_DATA,
+	RPC_F_RW_BASE64,
 	__RPC_F_RW_MAX,
 };
 
 static const struct blobmsg_policy rpc_file_rw_policy[__RPC_F_RW_MAX] = {
-	[RPC_F_RW_PATH] = { .name = "path", .type = BLOBMSG_TYPE_STRING },
-	[RPC_F_RW_DATA] = { .name = "data", .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_RW_PATH]   = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_RW_DATA]   = { .name = "data",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_RW_BASE64] = { .name = "base64", .type = BLOBMSG_TYPE_BOOL   },
 };
 
 enum {
@@ -162,12 +176,22 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
               struct ubus_request_data *req, const char *method,
               struct blob_attr *msg)
 {
-	int fd, rv, len;
+	static struct blob_attr *tb[__RPC_F_RB_MAX];
+	bool base64 = false;
+	int fd, rv;
+	ssize_t len;
 	char *path;
 	struct stat s;
 	char *wbuf;
 
-	if (!rpc_check_path(msg, &path, &s))
+	blobmsg_parse(rpc_file_rb_policy, __RPC_F_RB_MAX, tb, blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_F_RB_PATH])
+		return rpc_errno_status();
+
+	path = blobmsg_data(tb[RPC_F_RB_PATH]);
+
+	if (stat(path, &s))
 		return rpc_errno_status();
 
 	if (s.st_size >= RPC_FILE_MAX_SIZE)
@@ -182,7 +206,13 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
 
 	blob_buf_init(&buf, 0);
 
-	wbuf = blobmsg_alloc_string_buffer(&buf, "data", s.st_size + 1);
+	if (tb[RPC_F_RB_BASE64])
+		base64 = blobmsg_get_bool(tb[RPC_F_RB_BASE64]);
+
+	len = s.st_size + 1;
+	if (base64)
+		len = B64_ENCODE_LEN(s.st_size);
+	wbuf = blobmsg_alloc_string_buffer(&buf, "data", len);
 
 	if (!wbuf)
 	{
@@ -196,14 +226,33 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
 		goto out;
 	}
 
+	if (base64)
+	{
+		uint8_t *data = calloc(len, sizeof(uint8_t));
+		if (!data)
+		{
+			rv = UBUS_STATUS_UNKNOWN_ERROR;
+			goto out;
+		}
+		memcpy(data, wbuf, len);
+
+		len = b64_encode(data, len, wbuf, B64_ENCODE_LEN(len));
+		free(data);
+		if (len < 0)
+		{
+			rv = UBUS_STATUS_UNKNOWN_ERROR;
+			goto out;
+		}
+	}
+
 	*(wbuf + len) = 0;
 	blobmsg_add_string_buffer(&buf);
 
 	ubus_send_reply(ctx, req, buf.head);
-	blob_buf_free(&buf);
 	rv = UBUS_STATUS_OK;
 
 out:
+	blob_buf_free(&buf);
 	close(fd);
 	return rv;
 }
@@ -213,8 +262,10 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
                struct ubus_request_data *req, const char *method,
                struct blob_attr *msg)
 {
-	int fd;
 	struct blob_attr *tb[__RPC_F_RW_MAX];
+	int fd, rv = 0;
+	void *data = NULL;
+	size_t data_len = 0;
 
 	blobmsg_parse(rpc_file_rw_policy, __RPC_F_RW_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -222,17 +273,34 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb[RPC_F_RW_PATH] || !tb[RPC_F_RW_DATA])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
+	data = blobmsg_data(tb[RPC_F_RW_DATA]);
+	data_len = blobmsg_data_len(tb[RPC_F_RW_DATA]) - 1;
+
 	if ((fd = open(blobmsg_data(tb[RPC_F_RW_PATH]), O_CREAT | O_TRUNC | O_WRONLY, 0666)) < 0)
 		return rpc_errno_status();
 
-	if (write(fd, blobmsg_data(tb[RPC_F_RW_DATA]), blobmsg_data_len(tb[RPC_F_RW_DATA])) < 0)
-		return rpc_errno_status();
+	if (tb[RPC_F_RW_BASE64] && blobmsg_get_bool(tb[RPC_F_RW_BASE64]))
+	{
+		data_len = b64_decode(data, data, data_len);
+		if (data_len < 0)
+		{
+			rv = UBUS_STATUS_UNKNOWN_ERROR;
+			goto out;
+		}
+	}
 
+	if (write(fd, data, data_len) < 0)
+		rv = -1;
+
+out:
 	if (fsync(fd) < 0)
-		return rpc_errno_status();
+		rv = -1;
 
 	close(fd);
 	sync();
+
+	if (rv)
+		return rpc_errno_status();
 
 	return 0;
 }
@@ -641,7 +709,7 @@ static int
 rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method file_methods[] = {
-		UBUS_METHOD("read",    rpc_file_read,  rpc_file_r_policy),
+		UBUS_METHOD("read",    rpc_file_read,  rpc_file_rb_policy),
 		UBUS_METHOD("write",   rpc_file_write, rpc_file_rw_policy),
 		UBUS_METHOD("list",    rpc_file_list,  rpc_file_r_policy),
 		UBUS_METHOD("stat",    rpc_file_stat,  rpc_file_r_policy),
