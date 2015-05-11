@@ -247,7 +247,7 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
 		}
 	}
 
-	*(wbuf + len) = 0;
+	*(wbuf + len) = '\0';
 	blobmsg_add_string_buffer(&buf);
 
 	ubus_send_reply(ctx, req, buf.head);
