@@ -1150,7 +1150,10 @@ rpc_uci_revert_commit(struct ubus_context *ctx, struct blob_attr *msg, bool comm
 	else
 	{
 		if (!uci_lookup_ptr(cursor, &ptr, NULL, true) && ptr.p)
+		{
 			uci_revert(cursor, &ptr);
+			uci_unload(cursor, ptr.p);
+		}
 	}
 
 	return rpc_uci_status();
