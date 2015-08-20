@@ -8,6 +8,7 @@ INCLUDE_DIRECTORIES(include)
 
 OPTION(FILE_SUPPORT "File plugin support" ON)
 OPTION(IWINFO_SUPPORT "libiwinfo plugin support" ON)
+OPTION(RPCSYS_SUPPORT "rpc-sys plugin support" ON)
 
 SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
@@ -37,6 +38,13 @@ IF(FILE_SUPPORT)
   ADD_LIBRARY(file_plugin MODULE file.c)
   TARGET_LINK_LIBRARIES(file_plugin ubox ubus)
   SET_TARGET_PROPERTIES(file_plugin PROPERTIES OUTPUT_NAME file PREFIX "")
+ENDIF()
+
+IF(RPCSYS_SUPPORT)
+  SET(PLUGINS ${PLUGINS} rpcsys_plugin)
+  ADD_LIBRARY(rpcsys_plugin MODULE sys.c)
+  TARGET_LINK_LIBRARIES(rpcsys_plugin ubox ubus)
+  SET_TARGET_PROPERTIES(rpcsys_plugin PROPERTIES OUTPUT_NAME rpcsys PREFIX "")
 ENDIF()
 
 IF (IWINFO_SUPPORT)
