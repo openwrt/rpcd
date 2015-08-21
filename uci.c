@@ -23,6 +23,7 @@
 #include <libubox/blobmsg_json.h>
 
 #include <rpcd/uci.h>
+#include <rpcd/exec.h>
 #include <rpcd/session.h>
 
 static struct blob_buf buf;
@@ -1490,6 +1491,21 @@ rpc_uci_rollback(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+static int
+rpc_uci_reload(struct ubus_context *ctx, struct ubus_object *obj,
+                 struct ubus_request_data *req, const char *method,
+                 struct blob_attr *msg)
+{
+	char * const cmd[2] = { "/sbin/reload_config", NULL };
+
+	if (!fork()) {
+		/* wait for the RPC call to complete */
+		sleep(2);
+		return execv(cmd[0], cmd);
+	}
+
+	return 0;
+}
 
 /*
  * Session destroy callback to purge associated delta directory.
@@ -1538,6 +1554,7 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 		UBUS_METHOD("apply",    rpc_uci_apply,    rpc_uci_apply_policy),
 		UBUS_METHOD("confirm",  rpc_uci_confirm,  rpc_uci_rollback_policy),
 		UBUS_METHOD("rollback", rpc_uci_rollback, rpc_uci_rollback_policy),
+		UBUS_METHOD_NOARG("reload_config", rpc_uci_reload),
 	};
 
 	static struct ubus_object_type uci_type =
