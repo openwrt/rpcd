@@ -74,8 +74,8 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (stat("/var/run/rpcd", &s))
-		mkdir("/var/run/rpcd", 0700);
+	if (stat(RPC_UCI_DIR_PREFIX, &s))
+		mkdir(RPC_UCI_DIR_PREFIX, 0700);
 
 	umask(0077);
 
