@@ -272,8 +272,7 @@ rpc_uci_format_blob(struct blob_attr *v, const char **p)
 	switch (blobmsg_type(v))
 	{
 	case BLOBMSG_TYPE_STRING:
-		if (blobmsg_data_len(v) > 1)
-			*p = blobmsg_data(v);
+		*p = blobmsg_data(v);
 		break;
 
 	case BLOBMSG_TYPE_INT64:
