@@ -271,7 +271,7 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 	mode_t prev_mode, mode = 0666;
 	int fd, rv = 0;
 	void *data = NULL;
-	size_t data_len = 0;
+	ssize_t data_len = 0;
 
 	blobmsg_parse(rpc_file_rw_policy, __RPC_F_RW_MAX, tb,
 	              blob_data(msg), blob_len(msg));
