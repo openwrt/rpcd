@@ -588,7 +588,7 @@ rpc_iwinfo_countrylist(struct ubus_context *ctx, struct ubus_object *obj,
 	int rv, len;
 	char cur[3];
 	char iso3166[3];
-	char res[IWINFO_BUFSIZE];
+	char res[IWINFO_BUFSIZE] = {0};
 	const char *ccode;
 	const struct iwinfo_iso3166_label *l;
 	void *c, *d;
