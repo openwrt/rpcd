@@ -227,6 +227,41 @@ rpc_iwinfo_call_encryption(const char *name)
 }
 
 static void
+rpc_iwinfo_call_htmodes(const char *name)
+{
+	int modes;
+	void *c;
+
+	if (!iw->htmodelist(ifname, &modes))
+	{
+		c = blobmsg_open_array(&buf, name);
+
+		if (modes & IWINFO_HTMODE_HT20)
+			blobmsg_add_string(&buf, NULL, "HT20");
+
+		if (modes & IWINFO_HTMODE_HT40)
+			blobmsg_add_string(&buf, NULL, "HT40");
+
+		if (modes & IWINFO_HTMODE_VHT20)
+			blobmsg_add_string(&buf, NULL, "VHT20");
+
+		if (modes & IWINFO_HTMODE_VHT40)
+			blobmsg_add_string(&buf, NULL, "VHT40");
+
+		if (modes & IWINFO_HTMODE_VHT80)
+			blobmsg_add_string(&buf, NULL, "VHT80");
+
+		if (modes & IWINFO_HTMODE_VHT80_80)
+			blobmsg_add_string(&buf, NULL, "VHT80+80");
+
+		if (modes & IWINFO_HTMODE_VHT160)
+			blobmsg_add_string(&buf, NULL, "VHT160");
+
+		blobmsg_close_array(&buf, c);
+	}
+}
+
+static void
 rpc_iwinfo_call_hwmodes(const char *name)
 {
 	int modes;
@@ -303,6 +338,7 @@ rpc_iwinfo_info(struct ubus_context *ctx, struct ubus_object *obj,
 	rpc_iwinfo_call_int("bitrate", iw->bitrate, NULL);
 
 	rpc_iwinfo_call_encryption("encryption");
+	rpc_iwinfo_call_htmodes("htmodes");
 	rpc_iwinfo_call_hwmodes("hwmodes");
 
 	c = blobmsg_open_table(&buf, "hardware");
