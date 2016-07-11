@@ -28,6 +28,9 @@ IF(crypt STREQUAL "crypt-NOTFOUND")
   SET(crypt "")
 ENDIF()
 
+FIND_PATH(ubus_include_dir libubus.h)
+INCLUDE_DIRECTORIES(${ubus_include_dir})
+
 ADD_EXECUTABLE(rpcd main.c exec.c session.c uci.c plugin.c)
 TARGET_LINK_LIBRARIES(rpcd ubox ubus uci dl blobmsg_json ${json} ${crypt})
 
