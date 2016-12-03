@@ -76,6 +76,8 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 	int fd, fds[2];
 	struct stat s;
 	struct blob_attr *tb[__RPC_P_MAX];
+	ssize_t n;
+	int ret;
 
 	blobmsg_parse(rpc_password_policy, __RPC_P_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -113,7 +115,9 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 			close(fd);
 		}
 
-		chdir("/");
+		ret = chdir("/");
+		if (ret < 0)
+			return rpc_errno_status();
 
 		if (execl("/usr/bin/passwd", "/usr/bin/passwd",
 		          blobmsg_data(tb[RPC_P_USER]), NULL))
@@ -122,15 +126,24 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 	default:
 		close(fds[0]);
 
-		write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
+		n = write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
 		              blobmsg_data_len(tb[RPC_P_PASSWORD]) - 1);
-		write(fds[1], "\n", 1);
+		if (n < 0)
+			return rpc_errno_status();
+
+		n = write(fds[1], "\n", 1);
+		if (n < 0)
+			return rpc_errno_status();
 
 		usleep(100 * 1000);
 
-		write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
+		n = write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
 		              blobmsg_data_len(tb[RPC_P_PASSWORD]) - 1);
-		write(fds[1], "\n", 1);
+		if (n < 0)
+			return rpc_errno_status();
+		n = write(fds[1], "\n", 1);
+		if (n < 0)
+			return rpc_errno_status();
 
 		close(fds[1]);
 
