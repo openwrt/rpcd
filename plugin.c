@@ -412,7 +412,7 @@ rpc_plugin_register_library(struct ubus_context *ctx, const char *path)
 	struct rpc_plugin *p;
 	void *dlh;
 
-	dlh = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
+	dlh = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
 
 	if (!dlh)
 		return UBUS_STATUS_UNKNOWN_ERROR;
