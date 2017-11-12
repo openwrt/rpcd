@@ -154,6 +154,84 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 static int
+rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
+                struct ubus_request_data *req, const char *method,
+                struct blob_attr *msg)
+{
+	struct blob_buf buf = { 0 };
+	char var[256], pkg[128], ver[128];
+	char *tmp, *p1, *p2, *p3;
+	void *tbl;
+
+	FILE *f = fopen("/usr/lib/opkg/status", "r");
+	if (!f)
+		return UBUS_STATUS_NOT_FOUND;
+
+	blob_buf_init(&buf, 0);
+	tbl = blobmsg_open_table(&buf, "packages");
+	pkg[0] = ver[0] = '\0';
+
+	while(fgets(var, sizeof(var), f)) {
+		p1 = strchr(var, ' ');
+		p2 = p3 = NULL;
+		if (!p1)
+			goto procstr;
+
+		*p1++ = '\0';
+		p2 = strchr(p1, ' ');
+		if (!p2) {
+			tmp = strchr(p1, '\n');
+			if (tmp)
+				*tmp = '\0';
+			goto procstr;
+		}
+
+		*p2++ = '\0';
+		p3 = strchr(p2, ' ');
+		if (!p3) {
+			tmp = strchr(p2, '\n');
+			if (tmp)
+				*tmp = '\0';
+			goto procstr;
+		}
+
+		*p3++ = '\0';
+		tmp = strchr(p3, '\n');
+		if (tmp)
+			*tmp = '\0';
+
+procstr:
+		if (!p1)
+			continue;
+
+		if (!strcmp(var, "Package:")) {
+			strncpy(pkg, p1, sizeof(pkg));
+			continue;
+		}
+
+		if (!strcmp(var, "Version:")) {
+			strncpy(ver, p1, sizeof(ver));
+			continue;
+		}
+
+		if (p2 && p3 &&
+		    !strcmp(var, "Status:") &&
+		    !strcmp(p1, "install") &&
+		    !strcmp(p2, "user") &&
+		    !strcmp(p3, "installed") && pkg[0] && ver[0]) {
+			blobmsg_add_string(&buf, pkg, ver);
+			pkg[0] = ver[0] = '\0';
+		}
+	}
+
+	blobmsg_close_table(&buf, tbl);
+	ubus_send_reply(ctx, req, buf.head);
+	fclose(f);
+
+	return 0;
+}
+
+static int
 rpc_sys_upgrade_test(struct ubus_context *ctx, struct ubus_object *obj,
                        struct ubus_request_data *req, const char *method,
                        struct blob_attr *msg)
@@ -234,6 +312,7 @@ static int
 rpc_sys_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method sys_methods[] = {
+		UBUS_METHOD_NOARG("packagelist", rpc_sys_packagelist),
 		UBUS_METHOD("password_set", rpc_cgi_password_set, rpc_password_policy),
 		UBUS_METHOD_NOARG("upgrade_test", rpc_sys_upgrade_test),
 		UBUS_METHOD("upgrade_start",      rpc_sys_upgrade_start,
