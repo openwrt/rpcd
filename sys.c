@@ -226,6 +226,7 @@ procstr:
 
 	blobmsg_close_table(&buf, tbl);
 	ubus_send_reply(ctx, req, buf.head);
+	blob_buf_free(&buf);
 	fclose(f);
 
 	return 0;
