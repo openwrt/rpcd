@@ -78,6 +78,7 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__RPC_P_MAX];
 	ssize_t n;
 	int ret;
+	const char *const passwd = "/bin/passwd";
 
 	blobmsg_parse(rpc_password_policy, __RPC_P_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -85,7 +86,7 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb[RPC_P_USER] || !tb[RPC_P_PASSWORD])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
-	if (stat("/usr/bin/passwd", &s))
+	if (stat(passwd, &s))
 		return UBUS_STATUS_NOT_FOUND;
 
 	if (!(s.st_mode & S_IXUSR))
@@ -119,7 +120,7 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 		if (ret < 0)
 			return rpc_errno_status();
 
-		if (execl("/usr/bin/passwd", "/usr/bin/passwd",
+		if (execl(passwd, passwd,
 		          blobmsg_data(tb[RPC_P_USER]), NULL))
 			return rpc_errno_status();
 
