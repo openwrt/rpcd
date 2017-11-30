@@ -45,6 +45,15 @@ static const struct blobmsg_policy rpc_upgrade_policy[__RPC_UPGRADE_MAX] = {
 	[RPC_UPGRADE_KEEP] = { .name = "keep",    .type = BLOBMSG_TYPE_BOOL },
 };
 
+enum {
+	RPC_PACKAGELIST_ALL,
+	__RPC_PACKAGELIST_MAX
+};
+
+static const struct blobmsg_policy rpc_packagelist_policy[__RPC_PACKAGELIST_MAX] = {
+	[RPC_PACKAGELIST_ALL] = { .name = "all",    .type = BLOBMSG_TYPE_BOOL },
+};
+
 static int
 rpc_errno_status(void)
 {
@@ -159,10 +168,18 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
                 struct ubus_request_data *req, const char *method,
                 struct blob_attr *msg)
 {
+	struct blob_attr *tb[__RPC_PACKAGELIST_MAX];
+	int all = false;
 	struct blob_buf buf = { 0 };
 	char var[256], pkg[128], ver[128];
 	char *tmp, *p1, *p2, *p3;
 	void *tbl;
+
+	blobmsg_parse(rpc_packagelist_policy, __RPC_PACKAGELIST_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (tb[RPC_PACKAGELIST_ALL] && blobmsg_get_bool(tb[RPC_PACKAGELIST_ALL]))
+		all = true;
 
 	FILE *f = fopen("/usr/lib/opkg/status", "r");
 	if (!f)
@@ -218,7 +235,7 @@ procstr:
 		if (p2 && p3 &&
 		    !strcmp(var, "Status:") &&
 		    !strcmp(p1, "install") &&
-		    !strcmp(p2, "user") &&
+		    (all || strstr(p2, "user")) &&
 		    !strcmp(p3, "installed") && pkg[0] && ver[0]) {
 			blobmsg_add_string(&buf, pkg, ver);
 			pkg[0] = ver[0] = '\0';
@@ -314,7 +331,7 @@ static int
 rpc_sys_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method sys_methods[] = {
-		UBUS_METHOD_NOARG("packagelist", rpc_sys_packagelist),
+		UBUS_METHOD("packagelist", rpc_sys_packagelist, rpc_packagelist_policy),
 		UBUS_METHOD("password_set", rpc_cgi_password_set, rpc_password_policy),
 		UBUS_METHOD_NOARG("upgrade_test", rpc_sys_upgrade_test),
 		UBUS_METHOD("upgrade_start",      rpc_sys_upgrade_start,
