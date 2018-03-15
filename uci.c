@@ -210,7 +210,14 @@ rpc_uci_status(void)
 static void
 rpc_uci_set_savedir(struct blob_attr *sid)
 {
+	struct uci_element *e, *tmp;
 	char path[PATH_MAX];
+
+	uci_foreach_element_safe(&cursor->delta_path, tmp, e)
+		free(e);
+
+	cursor->delta_path.prev = &cursor->delta_path;
+	cursor->delta_path.next = &cursor->delta_path;
 
 	if (!sid)
 	{
