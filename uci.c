@@ -30,7 +30,8 @@ static struct blob_buf buf;
 static struct uci_context *cursor;
 static struct uloop_timeout apply_timer;
 static struct ubus_context *apply_ctx;
-static char apply_sid[RPC_SID_LEN + 1];
+
+char apply_sid[RPC_SID_LEN + 1];
 
 enum {
 	RPC_G_CONFIG,

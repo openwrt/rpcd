@@ -1085,6 +1085,31 @@ rpc_login_setup_acls(struct rpc_session *ses, struct uci_section *login)
 	globfree(&gl);
 }
 
+static struct rpc_session *
+rpc_reclaim_apply_session(const char *expected_username)
+{
+	struct rpc_session_data *username;
+	struct rpc_session *ses;
+
+	if (!apply_sid[0])
+		return NULL;
+
+	ses = rpc_session_get(apply_sid);
+
+	if (!ses)
+		return NULL;
+
+	username = avl_find_element(&ses->data, "username", username, avl);
+
+	if (!username || blobmsg_type(username->attr) != BLOBMSG_TYPE_STRING)
+		return NULL;
+
+	if (strcmp(blobmsg_get_string(username->attr), expected_username))
+		return NULL;
+
+	return ses;
+}
+
 static int
 rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
                  struct ubus_request_data *req, const char *method,
@@ -1122,7 +1147,15 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 	if (tb[RPC_L_TIMEOUT])
 		timeout = blobmsg_get_u32(tb[RPC_L_TIMEOUT]);
 
-	ses = rpc_session_create(timeout);
+	/*
+	 * attempt to reclaim a pending apply session, but only accept it
+	 * if the username matches, otherwise perform a new login
+	 */
+
+	ses = rpc_reclaim_apply_session(blobmsg_get_string(tb[RPC_L_USERNAME]));
+
+	if (!ses)
+		ses = rpc_session_create(timeout);
 
 	if (!ses) {
 		rv = UBUS_STATUS_UNKNOWN_ERROR;

@@ -36,6 +36,8 @@
 #define RPC_SESSION_DIRECTORY	"/var/run/rpcd/sessions"
 #define RPC_SESSION_ACL_DIR		"/usr/share/rpcd/acl.d"
 
+extern char apply_sid[RPC_SID_LEN + 1];
+
 struct rpc_session {
 	struct avl_node avl;
 	char id[RPC_SID_LEN + 1];
