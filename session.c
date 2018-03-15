@@ -1288,6 +1288,9 @@ rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr)
 	blobmsg_for_each_attr(data, tb[RPC_DUMP_DATA], rem) {
 		rpc_session_set(ses, data);
 
+		if (blobmsg_type(data) != BLOBMSG_TYPE_STRING)
+			continue;
+
 		if (!strcmp(blobmsg_name(data), "username"))
 			user = blobmsg_get_string(data);
 	}
