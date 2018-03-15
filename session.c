@@ -627,11 +627,11 @@ rpc_handle_access(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 static void
-rpc_session_set(struct rpc_session *ses, const char *key, struct blob_attr *val)
+rpc_session_set(struct rpc_session *ses, struct blob_attr *val)
 {
 	struct rpc_session_data *data;
 
-	data = avl_find_element(&ses->data, key, data, avl);
+	data = avl_find_element(&ses->data, blobmsg_name(val), data, avl);
 	if (data) {
 		avl_delete(&ses->data, &data->avl);
 		free(data);
@@ -669,7 +669,7 @@ rpc_handle_set(struct ubus_context *ctx, struct ubus_object *obj,
 		if (!blobmsg_name(attr)[0])
 			continue;
 
-		rpc_session_set(ses, blobmsg_name(attr), attr);
+		rpc_session_set(ses, attr);
 	}
 
 	return 0;
@@ -1131,7 +1131,7 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 
 	rpc_login_setup_acls(ses, login);
 
-	rpc_session_set(ses, "user", tb[RPC_L_USERNAME]);
+	rpc_session_set(ses, tb[RPC_L_USERNAME]);
 	rpc_session_dump(ses, ctx, req);
 
 out:
@@ -1253,7 +1253,7 @@ rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr)
 	ses->timeout = blobmsg_get_u32(tb[RPC_DUMP_TIMEOUT]);
 
 	blobmsg_for_each_attr(data, tb[RPC_DUMP_DATA], rem) {
-		rpc_session_set(ses, blobmsg_name(data), data);
+		rpc_session_set(ses, data);
 
 		if (!strcmp(blobmsg_name(data), "username"))
 			user = blobmsg_get_string(data);
