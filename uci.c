@@ -968,7 +968,7 @@ rpc_uci_order(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *cur;
 	struct uci_package *p = NULL;
 	struct uci_ptr ptr = { 0 };
-	int rem, i = 1;
+	int rem, i = 0;
 
 	blobmsg_parse(rpc_uci_order_policy, __RPC_O_MAX, tb,
 	              blob_data(msg), blob_len(msg));
