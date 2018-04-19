@@ -1373,6 +1373,8 @@ rpc_uci_apply_timeout(struct uloop_timeout *t)
 		return;
 
 	rpc_uci_do_rollback(apply_ctx, &gl);
+
+	globfree(&gl);
 }
 
 static int
