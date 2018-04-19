@@ -204,15 +204,13 @@ rpc_uci_status(void)
 }
 
 /*
- * Setup per-session delta save directory. If the passed "sid" blob attribute
- * pointer is NULL then the precedure was not invoked through the ubus-rpc so
- * we do not perform session isolation and use the default save directory.
+ * Clear all save directories from the uci cursor and append the given path
+ * as new save directory.
  */
 static void
-rpc_uci_set_savedir(struct blob_attr *sid)
+rpc_uci_replace_savedir(const char *path)
 {
 	struct uci_element *e, *tmp;
-	char path[PATH_MAX];
 
 	uci_foreach_element_safe(&cursor->delta_path, tmp, e)
 		free(e);
@@ -220,16 +218,30 @@ rpc_uci_set_savedir(struct blob_attr *sid)
 	cursor->delta_path.prev = &cursor->delta_path;
 	cursor->delta_path.next = &cursor->delta_path;
 
+	if (path)
+		uci_set_savedir(cursor, path);
+}
+
+/*
+ * Setup per-session delta save directory. If the passed "sid" blob attribute
+ * pointer is NULL then the precedure was not invoked through the ubus-rpc so
+ * we do not perform session isolation and use the default save directory.
+ */
+static void
+rpc_uci_set_savedir(struct blob_attr *sid)
+{
+	char path[PATH_MAX];
+
 	if (!sid)
 	{
-		uci_set_savedir(cursor, "/tmp/.uci");
+		rpc_uci_replace_savedir("/tmp/.uci");
 		return;
 	}
 
 	snprintf(path, sizeof(path) - 1,
 	         RPC_UCI_SAVEDIR_PREFIX "%s", blobmsg_get_string(sid));
 
-	uci_set_savedir(cursor, path);
+	rpc_uci_replace_savedir(path);
 }
 
 /*
