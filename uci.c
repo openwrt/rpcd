@@ -1292,50 +1292,6 @@ rpc_uci_copy_file(const char *src, const char *target, const char *file)
 		fclose(out);
 }
 
-static void
-rpc_uci_do_rollback(struct ubus_context *ctx, const char *sid, glob_t *gl)
-{
-	int i;
-	char tmp[PATH_MAX];
-
-	if (sid) {
-		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", sid);
-		mkdir(tmp, 0700);
-	}
-
-	for (i = 0; i < gl->gl_pathc; i++) {
-		char *config = basename(gl->gl_pathv[i]);
-
-		if (*config == '.')
-			continue;
-
-		rpc_uci_copy_file(RPC_SNAPSHOT_FILES, RPC_UCI_DIR, config);
-		rpc_uci_apply_config(ctx, config);
-		if (sid)
-			rpc_uci_copy_file(RPC_SNAPSHOT_DELTA, tmp, config);
-	}
-
-	rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
-	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
-
-	uloop_timeout_cancel(&apply_timer);
-	memset(apply_sid, 0, sizeof(apply_sid));
-	apply_ctx = NULL;
-}
-
-static void
-rpc_uci_apply_timeout(struct uloop_timeout *t)
-{
-	glob_t gl;
-	char tmp[PATH_MAX];
-
-	snprintf(tmp, sizeof(tmp), "%s/*", RPC_SNAPSHOT_FILES);
-	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
-		return;
-
-	rpc_uci_do_rollback(apply_ctx, NULL, &gl);
-}
-
 static int
 rpc_uci_apply_access(const char *sid, glob_t *gl)
 {
@@ -1361,6 +1317,62 @@ rpc_uci_apply_access(const char *sid, glob_t *gl)
 		return UBUS_STATUS_NO_DATA;
 
 	return 0;
+}
+
+static void
+rpc_uci_do_rollback(struct ubus_context *ctx, glob_t *gl)
+{
+	int i, deny;
+	char tmp[PATH_MAX];
+
+	/* Test apply permission to see if the initiator session still exists.
+	 * If it does, restore the delta files as well, else just restore the
+	 * main configuration files. */
+	deny = apply_sid[0]
+		? rpc_uci_apply_access(apply_sid, gl) : UBUS_STATUS_NOT_FOUND;
+
+	if (!deny) {
+		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", apply_sid);
+		mkdir(tmp, 0700);
+	}
+
+	/* avoid merging unrelated uci changes when restoring old configs */
+	rpc_uci_replace_savedir("/dev/null");
+
+	for (i = 0; i < gl->gl_pathc; i++) {
+		char *config = basename(gl->gl_pathv[i]);
+
+		if (*config == '.')
+			continue;
+
+		rpc_uci_copy_file(RPC_SNAPSHOT_FILES, RPC_UCI_DIR, config);
+		rpc_uci_apply_config(ctx, config);
+
+		if (deny)
+			continue;
+
+		rpc_uci_copy_file(RPC_SNAPSHOT_DELTA, tmp, config);
+	}
+
+	rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
+	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
+
+	uloop_timeout_cancel(&apply_timer);
+	memset(apply_sid, 0, sizeof(apply_sid));
+	apply_ctx = NULL;
+}
+
+static void
+rpc_uci_apply_timeout(struct uloop_timeout *t)
+{
+	glob_t gl;
+	char tmp[PATH_MAX];
+
+	snprintf(tmp, sizeof(tmp), "%s/*", RPC_SNAPSHOT_FILES);
+	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
+		return;
+
+	rpc_uci_do_rollback(apply_ctx, &gl);
 }
 
 static int
@@ -1397,6 +1409,8 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
 
 	if (!apply_sid[0]) {
+		rpc_uci_set_savedir(tb[RPC_T_SESSION]);
+
 		mkdir(RPC_SNAPSHOT_FILES, 0700);
 		mkdir(RPC_SNAPSHOT_DELTA, 0700);
 
@@ -1503,7 +1517,7 @@ rpc_uci_rollback(struct ubus_context *ctx, struct ubus_object *obj,
 	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
 		return UBUS_STATUS_NOT_FOUND;
 
-	rpc_uci_do_rollback(ctx, sid, &gl);
+	rpc_uci_do_rollback(ctx, &gl);
 
 	globfree(&gl);
 
