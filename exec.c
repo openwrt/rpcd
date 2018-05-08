@@ -175,6 +175,12 @@ rpc_exec_process_cb(struct uloop_process *p, int stat)
 
 	ustream_poll(&c->opipe.stream);
 	ustream_poll(&c->epipe.stream);
+
+	close(c->opipe.fd.fd);
+	close(c->epipe.fd.fd);
+
+	ustream_poll(&c->opipe.stream);
+	ustream_poll(&c->epipe.stream);
 }
 
 static void
