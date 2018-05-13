@@ -212,8 +212,12 @@ rpc_uci_replace_savedir(const char *path)
 {
 	struct uci_element *e, *tmp;
 
-	uci_foreach_element_safe(&cursor->delta_path, tmp, e)
+	uci_foreach_element_safe(&cursor->delta_path, tmp, e) {
+		if (e->name)
+			free(e->name);
+
 		free(e);
+	}
 
 	cursor->delta_path.prev = &cursor->delta_path;
 	cursor->delta_path.next = &cursor->delta_path;
