@@ -1131,7 +1131,7 @@ rpc_uci_order(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *cur;
 	struct uci_package *p = NULL;
 	struct uci_ptr ptr = { 0 };
-	int rem, i = 0;
+	int rem, i = 0, err = 0;
 
 	blobmsg_parse(rpc_uci_order_policy, __RPC_O_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -1150,21 +1150,33 @@ rpc_uci_order(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_for_each_attr(cur, tb[RPC_O_SECTIONS], rem)
 	{
 		if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
+		{
+			if (!err)
+				err = UBUS_STATUS_INVALID_ARGUMENT;
+
 			continue;
+		}
 
 		ptr.s = NULL;
 		ptr.section = blobmsg_data(cur);
 
 		if (uci_lookup_ptr(cursor, &ptr, NULL, true) || !ptr.s)
+		{
+			if (!err)
+				err = UBUS_STATUS_NOT_FOUND;
+
 			continue;
+		}
 
 		uci_reorder_section(cursor, ptr.s, i++);
 	}
 
-	uci_save(cursor, p);
+	if (!err)
+		uci_save(cursor, p);
+
 	uci_unload(cursor, p);
 
-	return rpc_uci_status();
+	return err ? err : rpc_uci_status();
 }
 
 static void
