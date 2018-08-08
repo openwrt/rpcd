@@ -687,7 +687,7 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 	struct uci_package *p = NULL;
 	struct uci_section *s;
 	struct uci_ptr ptr = { 0 };
-	int rem, rem2;
+	int rem, rem2, err = 0;
 
 	blobmsg_parse(rpc_uci_add_policy, __RPC_A_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -738,37 +738,68 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 			ptr.option = blobmsg_name(cur);
 
 			if (!rpc_uci_verify_name(ptr.option))
+			{
+				if (!err)
+					err = UBUS_STATUS_INVALID_ARGUMENT;
+
 				continue;
+			}
 
 			if (rpc_uci_lookup(&ptr) || !ptr.s)
+			{
+				if (!err)
+					err = UBUS_STATUS_NOT_FOUND;
+
 				continue;
+			}
 
 			switch (blobmsg_type(cur))
 			{
 			case BLOBMSG_TYPE_ARRAY:
 				blobmsg_for_each_attr(elem, cur, rem2)
-					if (rpc_uci_format_blob(elem, &ptr.value))
-						uci_add_list(cursor, &ptr);
+				{
+					if (!rpc_uci_format_blob(elem, &ptr.value))
+					{
+						if (!err)
+							err = UBUS_STATUS_INVALID_ARGUMENT;
+
+						continue;
+					}
+
+					uci_add_list(cursor, &ptr);
+				}
+
 				break;
 
 			default:
-				if (rpc_uci_format_blob(cur, &ptr.value))
+				if (!rpc_uci_format_blob(cur, &ptr.value))
+				{
+					if (!err)
+						err = UBUS_STATUS_INVALID_ARGUMENT;
+				}
+				else
+				{
 					uci_set(cursor, &ptr);
+				}
+
 				break;
 			}
 		}
 	}
 
-	uci_save(cursor, p);
+	if (!err)
+	{
+		uci_save(cursor, p);
 
-	blob_buf_init(&buf, 0);
-	blobmsg_add_string(&buf, "section", ptr.section);
-	ubus_send_reply(ctx, req, buf.head);
+		blob_buf_init(&buf, 0);
+		blobmsg_add_string(&buf, "section", ptr.section);
+		ubus_send_reply(ctx, req, buf.head);
+	}
 
 out:
 	uci_unload(cursor, p);
 
-	return rpc_uci_status();
+	return err ? err : rpc_uci_status();
 }
 
 /*
