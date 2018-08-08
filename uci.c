@@ -811,43 +811,59 @@ out:
  *  3) in all other cases only emit a set operation if there is no existing
  *     option of if the existing options value differs from the blob value
  */
-static void
+static int
 rpc_uci_merge_set(struct blob_attr *opt, struct uci_ptr *ptr)
 {
 	struct blob_attr *cur;
-	int rem;
+	int rem, rv;
 
 	ptr->o = NULL;
 	ptr->option = blobmsg_name(opt);
 	ptr->value = NULL;
 
 	if (!rpc_uci_verify_name(ptr->option))
-		return;
+		return UBUS_STATUS_INVALID_ARGUMENT;
 
 	if (rpc_uci_lookup(ptr) || !ptr->s)
-		return;
+		return UBUS_STATUS_NOT_FOUND;
 
 	if (blobmsg_type(opt) == BLOBMSG_TYPE_ARRAY)
 	{
 		if (ptr->o)
 			uci_delete(cursor, ptr);
 
+		rv = UBUS_STATUS_INVALID_ARGUMENT;
+
 		blobmsg_for_each_attr(cur, opt, rem)
-			if (rpc_uci_format_blob(cur, &ptr->value))
-				uci_add_list(cursor, ptr);
+		{
+			if (!rpc_uci_format_blob(cur, &ptr->value))
+				continue;
+
+			uci_add_list(cursor, ptr);
+			rv = 0;
+		}
+
+		return rv;
 	}
 	else if (ptr->o && ptr->o->type == UCI_TYPE_LIST)
 	{
 		uci_delete(cursor, ptr);
 
-		if (rpc_uci_format_blob(opt, &ptr->value))
-			uci_set(cursor, ptr);
+		if (!rpc_uci_format_blob(opt, &ptr->value))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
+		uci_set(cursor, ptr);
 	}
-	else if (rpc_uci_format_blob(opt, &ptr->value))
+	else
 	{
+		if (!rpc_uci_format_blob(opt, &ptr->value))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
 		if (!ptr->o || !ptr->o->v.string || strcmp(ptr->o->v.string, ptr->value))
 			uci_set(cursor, ptr);
 	}
+
+	return 0;
 }
 
 static int
@@ -860,7 +876,7 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
 	struct uci_package *p = NULL;
 	struct uci_element *e;
 	struct uci_ptr ptr = { 0 };
-	int rem;
+	int rem, rv, err = 0;
 
 	blobmsg_parse(rpc_uci_set_policy, __RPC_S_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -885,7 +901,12 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
 	{
 		ptr.section = blobmsg_data(tb[RPC_S_SECTION]);
 		blobmsg_for_each_attr(cur, tb[RPC_S_VALUES], rem)
-			rpc_uci_merge_set(cur, &ptr);
+		{
+			rv = rpc_uci_merge_set(cur, &ptr);
+
+			if (rv)
+				err = rv;
+		}
 	}
 	else
 	{
@@ -899,14 +920,24 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
 			ptr.section = e->name;
 
 			blobmsg_for_each_attr(cur, tb[RPC_S_VALUES], rem)
-				rpc_uci_merge_set(cur, &ptr);
+			{
+				rv = rpc_uci_merge_set(cur, &ptr);
+
+				if (rv)
+					err = rv;
+			}
 		}
 	}
 
-	uci_save(cursor, p);
+	if (!err && !ptr.s)
+		err = UBUS_STATUS_NOT_FOUND;
+
+	if (!err)
+		uci_save(cursor, p);
+
 	uci_unload(cursor, p);
 
-	return rpc_uci_status();
+	return err ? err : rpc_uci_status();
 }
 
 /*
