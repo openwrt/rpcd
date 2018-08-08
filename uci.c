@@ -946,14 +946,14 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
  *  2) if the blob is of type string, delete the option named after its value
  *  3) if the blob is NULL, delete entire section
  */
-static void
+static int
 rpc_uci_merge_delete(struct blob_attr *opt, struct uci_ptr *ptr)
 {
 	struct blob_attr *cur;
-	int rem;
+	int rem, rv;
 
 	if (rpc_uci_lookup(ptr) || !ptr->s)
-		return;
+		return UBUS_STATUS_NOT_FOUND;
 
 	if (!opt)
 	{
@@ -961,9 +961,12 @@ rpc_uci_merge_delete(struct blob_attr *opt, struct uci_ptr *ptr)
 		ptr->option = NULL;
 
 		uci_delete(cursor, ptr);
+		return 0;
 	}
 	else if (blobmsg_type(opt) == BLOBMSG_TYPE_ARRAY)
 	{
+		rv = UBUS_STATUS_NOT_FOUND;
+
 		blobmsg_for_each_attr(cur, opt, rem)
 		{
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
@@ -976,7 +979,10 @@ rpc_uci_merge_delete(struct blob_attr *opt, struct uci_ptr *ptr)
 				continue;
 
 			uci_delete(cursor, ptr);
+			rv = 0;
 		}
+
+		return rv;
 	}
 	else if (blobmsg_type(opt) == BLOBMSG_TYPE_STRING)
 	{
@@ -984,10 +990,13 @@ rpc_uci_merge_delete(struct blob_attr *opt, struct uci_ptr *ptr)
 		ptr->option = blobmsg_data(opt);
 
 		if (rpc_uci_lookup(ptr) || !ptr->o)
-			return;
+			return UBUS_STATUS_NOT_FOUND;
 
 		uci_delete(cursor, ptr);
+		return 0;
 	}
+
+	return UBUS_STATUS_INVALID_ARGUMENT;
 }
 
 static int
@@ -999,6 +1008,7 @@ rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
 	struct uci_package *p = NULL;
 	struct uci_element *e, *tmp;
 	struct uci_ptr ptr = { 0 };
+	int err = 0;
 
 	blobmsg_parse(rpc_uci_delete_policy, __RPC_D_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -1010,6 +1020,14 @@ rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!rpc_uci_write_access(tb[RPC_D_SESSION], tb[RPC_D_CONFIG]))
 		return UBUS_STATUS_PERMISSION_DENIED;
 
+	if (tb[RPC_D_TYPE] &&
+	    !rpc_uci_verify_type(blobmsg_data(tb[RPC_D_TYPE])))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (tb[RPC_D_SECTION] &&
+	    !rpc_uci_verify_section(blobmsg_data(tb[RPC_D_SECTION])))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
 	ptr.package = blobmsg_data(tb[RPC_D_CONFIG]);
 
 	if (uci_load(cursor, ptr.package, &p))
@@ -1020,9 +1038,9 @@ rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
 		ptr.section = blobmsg_data(tb[RPC_D_SECTION]);
 
 		if (tb[RPC_D_OPTIONS])
-			rpc_uci_merge_delete(tb[RPC_D_OPTIONS], &ptr);
+			err = rpc_uci_merge_delete(tb[RPC_D_OPTIONS], &ptr);
 		else
-			rpc_uci_merge_delete(tb[RPC_D_OPTION], &ptr);
+			err = rpc_uci_merge_delete(tb[RPC_D_OPTION], &ptr);
 	}
 	else
 	{
@@ -1036,16 +1054,21 @@ rpc_uci_delete(struct ubus_context *ctx, struct ubus_object *obj,
 			ptr.section = e->name;
 
 			if (tb[RPC_D_OPTIONS])
-				rpc_uci_merge_delete(tb[RPC_D_OPTIONS], &ptr);
+				err = rpc_uci_merge_delete(tb[RPC_D_OPTIONS], &ptr);
 			else
-				rpc_uci_merge_delete(tb[RPC_D_OPTION], &ptr);
+				err = rpc_uci_merge_delete(tb[RPC_D_OPTION], &ptr);
 		}
+
+		if (!err && !ptr.section)
+			err = UBUS_STATUS_NOT_FOUND;
 	}
 
-	uci_save(cursor, p);
+	if (!err)
+		uci_save(cursor, p);
+
 	uci_unload(cursor, p);
 
-	return rpc_uci_status();
+	return err ? err : rpc_uci_status();
 }
 
 static int
