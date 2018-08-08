@@ -182,6 +182,60 @@ static const struct blobmsg_policy rpc_uci_rollback_policy[__RPC_B_MAX] = {
 };
 
 /*
+ * Validate a uci name
+ */
+static bool
+rpc_uci_verify_str(const char *name, bool extended, bool type)
+{
+	const char *c;
+	char *e;
+
+	if (!name || !*name)
+		return false;
+
+	if (extended && *name != '@')
+		extended = false;
+
+	for (c = name + extended; *c; c++)
+		if (!isalnum(*c) && *c != '_' && ((!type && !extended) || *c != '-'))
+			break;
+
+	if (extended) {
+		if (*c != '[')
+			return false;
+
+		strtol(++c, &e, 10);
+
+		return (e > c && *e == ']' && *(e+1) == 0);
+	}
+
+	return (*c == 0);
+}
+
+/*
+ * Check that string is a valid, shell compatible uci name
+ */
+static bool rpc_uci_verify_name(const char *name) {
+	return rpc_uci_verify_str(name, false, false);
+}
+
+/*
+ * Check that string is a valid section type name
+ */
+static bool rpc_uci_verify_type(const char *type) {
+	return rpc_uci_verify_str(type, false, true);
+}
+
+/*
+ * Check that the string is a valid section id, optionally in extended
+ * lookup notation
+ */
+static bool rpc_uci_verify_section(const char *section) {
+	return rpc_uci_verify_str(section, true, false);
+}
+
+
+/*
  * Turn uci error state into ubus return code
  */
 static int
@@ -644,6 +698,13 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!rpc_uci_write_access(tb[RPC_A_SESSION], tb[RPC_A_CONFIG]))
 		return UBUS_STATUS_PERMISSION_DENIED;
 
+	if (!rpc_uci_verify_type(blobmsg_data(tb[RPC_A_TYPE])))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (tb[RPC_A_NAME] &&
+	    !rpc_uci_verify_name(blobmsg_data(tb[RPC_A_NAME])))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
 	ptr.package = blobmsg_data(tb[RPC_A_CONFIG]);
 
 	if (uci_load(cursor, ptr.package, &p))
@@ -675,6 +736,9 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 		{
 			ptr.o = NULL;
 			ptr.option = blobmsg_name(cur);
+
+			if (!rpc_uci_verify_name(ptr.option))
+				continue;
 
 			if (rpc_uci_lookup(&ptr) || !ptr.s)
 				continue;
@@ -726,6 +790,9 @@ rpc_uci_merge_set(struct blob_attr *opt, struct uci_ptr *ptr)
 	ptr->option = blobmsg_name(opt);
 	ptr->value = NULL;
 
+	if (!rpc_uci_verify_name(ptr->option))
+		return;
+
 	if (rpc_uci_lookup(ptr) || !ptr->s)
 		return;
 
@@ -773,6 +840,10 @@ rpc_uci_set(struct ubus_context *ctx, struct ubus_object *obj,
 
 	if (!rpc_uci_write_access(tb[RPC_S_SESSION], tb[RPC_S_CONFIG]))
 		return UBUS_STATUS_PERMISSION_DENIED;
+
+	if (tb[RPC_S_SECTION] &&
+	    !rpc_uci_verify_section(blobmsg_data(tb[RPC_S_SECTION])))
+		return UBUS_STATUS_INVALID_ARGUMENT;
 
 	ptr.package = blobmsg_data(tb[RPC_S_CONFIG]);
 
@@ -936,6 +1007,9 @@ rpc_uci_rename(struct ubus_context *ctx, struct ubus_object *obj,
 	ptr.package = blobmsg_data(tb[RPC_R_CONFIG]);
 	ptr.section = blobmsg_data(tb[RPC_R_SECTION]);
 	ptr.value   = blobmsg_data(tb[RPC_R_NAME]);
+
+	if (!rpc_uci_verify_name(ptr.value))
+		return UBUS_STATUS_INVALID_ARGUMENT;
 
 	if (tb[RPC_R_OPTION])
 		ptr.option = blobmsg_data(tb[RPC_R_OPTION]);
