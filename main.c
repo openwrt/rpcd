@@ -18,6 +18,7 @@
  */
 
 #include <unistd.h>
+#include <stdlib.h>
 
 #include <libubox/blobmsg_json.h>
 #include <libubus.h>
@@ -31,6 +32,8 @@
 
 static struct ubus_context *ctx;
 static bool respawn = false;
+
+int exec_timeout = RPC_EXEC_DEFAULT_TIMEOUT;
 
 static void
 handle_signal(int sig)
@@ -64,15 +67,27 @@ int main(int argc, char **argv)
 	const char *ubus_socket = NULL;
 	int ch;
 
-	while ((ch = getopt(argc, argv, "s:")) != -1) {
+	while ((ch = getopt(argc, argv, "s:t:")) != -1) {
 		switch (ch) {
 		case 's':
 			ubus_socket = optarg;
 			break;
+
+		case 't':
+			exec_timeout = strtol(optarg, NULL, 0);
+			break;
+
 		default:
 			break;
 		}
 	}
+
+	if (exec_timeout < 1 || exec_timeout > 600) {
+		fprintf(stderr, "Invalid execution timeout specified\n");
+		return -1;
+	}
+
+	exec_timeout *= 1000;
 
 	if (stat(RPC_UCI_DIR_PREFIX, &s))
 		mkdir(RPC_UCI_DIR_PREFIX, 0700);

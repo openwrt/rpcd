@@ -24,7 +24,7 @@
 #include <libubox/ustream.h>
 
 #define RPC_EXEC_MAX_SIZE		(4096 * 64)
-#define RPC_EXEC_MAX_RUNTIME	(30 * 1000)
+#define RPC_EXEC_DEFAULT_TIMEOUT	(120 * 1000)
 
 #define ustream_for_each_read_buffer(stream, ptr, len) \
 	for (ptr = ustream_get_read_buf(stream, &len);     \
@@ -50,6 +50,7 @@
 		ustream_fd_init(&us, fd);                             \
 	} while(0)
 
+extern int exec_timeout;
 
 typedef int (*rpc_exec_write_cb_t)(struct ustream *, void *);
 typedef int (*rpc_exec_read_cb_t)(struct blob_buf *, char *, int, void *);
