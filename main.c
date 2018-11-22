@@ -74,7 +74,7 @@ int main(int argc, char **argv)
 			break;
 
 		case 't':
-			exec_timeout = strtol(optarg, NULL, 0);
+			exec_timeout = 1000 * strtol(optarg, NULL, 0);
 			break;
 
 		default:
@@ -82,12 +82,10 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (exec_timeout < 1 || exec_timeout > 600) {
+	if (exec_timeout < 1000 || exec_timeout > 600000) {
 		fprintf(stderr, "Invalid execution timeout specified\n");
 		return -1;
 	}
-
-	exec_timeout *= 1000;
 
 	if (stat(RPC_UCI_DIR_PREFIX, &s))
 		mkdir(RPC_UCI_DIR_PREFIX, 0700);
