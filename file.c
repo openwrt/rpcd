@@ -39,7 +39,6 @@
 
 /* limit of regular files and command output data */
 #define RPC_FILE_MAX_SIZE		(4096 * 64)
-#define RPC_FILE_MAX_RUNTIME	(3 * 1000)
 
 #define ustream_for_each_read_buffer(stream, ptr, len) \
 	for (ptr = ustream_get_read_buf(stream, &len);     \
@@ -691,7 +690,7 @@ rpc_file_exec_run(const char *cmd,
 		uloop_process_add(&c->process);
 
 		c->timeout.cb = rpc_file_exec_timeout_cb;
-		uloop_timeout_set(&c->timeout, RPC_FILE_MAX_RUNTIME);
+		uloop_timeout_set(&c->timeout, exec_timeout);
 
 		close(opipe[1]);
 		close(epipe[1]);
