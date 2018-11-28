@@ -404,6 +404,7 @@ static const struct rpc_daemon_ops ops = {
 	.session_create_cb  = rpc_session_create_cb,
 	.session_destroy_cb = rpc_session_destroy_cb,
 	.exec               = rpc_exec,
+	.exec_timeout       = &rpc_exec_timeout,
 };
 
 static int

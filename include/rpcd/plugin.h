@@ -54,6 +54,7 @@ struct rpc_daemon_ops {
                 rpc_exec_read_cb_t err, rpc_exec_done_cb_t end,
                 void *priv, struct ubus_context *ctx,
                 struct ubus_request_data *req);
+    int *exec_timeout;
 };
 
 struct rpc_plugin {
