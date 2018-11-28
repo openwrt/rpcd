@@ -53,6 +53,8 @@
 	us.stream.notify_state  = rpc_file_##name##_state_cb; \
 	ustream_fd_init(&us, fd);
 
+static const struct rpc_daemon_ops *ops;
+
 struct rpc_file_exec_context {
 	struct ubus_context *context;
 	struct ubus_request_data request;
@@ -690,7 +692,7 @@ rpc_file_exec_run(const char *cmd,
 		uloop_process_add(&c->process);
 
 		c->timeout.cb = rpc_file_exec_timeout_cb;
-		uloop_timeout_set(&c->timeout, rpc_exec_timeout);
+		uloop_timeout_set(&c->timeout, *ops->exec_timeout);
 
 		close(opipe[1]);
 		close(epipe[1]);
@@ -741,6 +743,8 @@ rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 		.methods = file_methods,
 		.n_methods = ARRAY_SIZE(file_methods),
 	};
+
+	ops = o;
 
 	return ubus_add_object(ctx, &obj);
 }
