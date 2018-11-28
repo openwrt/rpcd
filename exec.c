@@ -350,7 +350,7 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 		uloop_process_add(&c->process);
 
 		c->timeout.cb = rpc_exec_timeout_cb;
-		uloop_timeout_set(&c->timeout, exec_timeout);
+		uloop_timeout_set(&c->timeout, rpc_exec_timeout);
 
 		if (c->stdin_cb)
 		{

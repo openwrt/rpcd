@@ -50,7 +50,7 @@
 		ustream_fd_init(&us, fd);                             \
 	} while(0)
 
-extern int exec_timeout;
+extern int rpc_exec_timeout;
 
 typedef int (*rpc_exec_write_cb_t)(struct ustream *, void *);
 typedef int (*rpc_exec_read_cb_t)(struct blob_buf *, char *, int, void *);

@@ -33,7 +33,7 @@
 static struct ubus_context *ctx;
 static bool respawn = false;
 
-int exec_timeout = RPC_EXEC_DEFAULT_TIMEOUT;
+int rpc_exec_timeout = RPC_EXEC_DEFAULT_TIMEOUT;
 
 static void
 handle_signal(int sig)
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
 			break;
 
 		case 't':
-			exec_timeout = 1000 * strtol(optarg, NULL, 0);
+			rpc_exec_timeout = 1000 * strtol(optarg, NULL, 0);
 			break;
 
 		default:
@@ -82,7 +82,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (exec_timeout < 1000 || exec_timeout > 600000) {
+	if (rpc_exec_timeout < 1000 || rpc_exec_timeout > 600000) {
 		fprintf(stderr, "Invalid execution timeout specified\n");
 		return -1;
 	}

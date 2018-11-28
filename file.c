@@ -690,7 +690,7 @@ rpc_file_exec_run(const char *cmd,
 		uloop_process_add(&c->process);
 
 		c->timeout.cb = rpc_file_exec_timeout_cb;
-		uloop_timeout_set(&c->timeout, exec_timeout);
+		uloop_timeout_set(&c->timeout, rpc_exec_timeout);
 
 		close(opipe[1]);
 		close(epipe[1]);
