@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -326,7 +327,7 @@ static int
 rpc_file_md5(struct ubus_context *ctx, struct ubus_object *obj,
              struct ubus_request_data *req, const char *method,
              struct blob_attr *msg)
-{ 
+{
 	int rv, i;
 	char *path;
 	struct stat s;
@@ -606,8 +607,8 @@ rpc_file_exec_run(const char *cmd,
 	int rem;
 	struct blob_attr *cur;
 
-	char arglen;
-	char **args;
+	uint8_t arglen;
+	char **args, **tmp;
 
 	struct rpc_file_exec_context *c;
 
@@ -657,11 +658,22 @@ rpc_file_exec_run(const char *cmd,
 				if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
 					continue;
 
+				if (arglen == 255)
+				{
+					free(args);
+					return UBUS_STATUS_INVALID_ARGUMENT;
+				}
+
 				arglen++;
+				tmp = realloc(args, sizeof(char *) * arglen);
 
-				if (!(args = realloc(args, sizeof(char *) * arglen)))
+				if (!tmp)
+				{
+					free(args);
 					return UBUS_STATUS_UNKNOWN_ERROR;
+				}
 
+				args = tmp;
 				args[arglen-2] = blobmsg_data(cur);
 				args[arglen-1] = NULL;
 			}
