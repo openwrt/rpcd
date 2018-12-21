@@ -63,10 +63,6 @@ struct rpc_file_exec_context {
 	struct uloop_process process;
 	struct ustream_fd opipe;
 	struct ustream_fd epipe;
-	int outlen;
-	char *out;
-	int errlen;
-	char *err;
 	int stat;
 };
 
