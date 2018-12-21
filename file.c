@@ -590,6 +590,13 @@ rpc_file_exec_epipe_state_cb(struct ustream *s)
 		rpc_file_exec_reply(c, UBUS_STATUS_OK);
 }
 
+static void
+rpc_fdclose(int fd)
+{
+	if (fd > 2)
+		close(fd);
+}
+
 static int
 rpc_file_exec_run(const char *cmd,
                   const struct blob_attr *arg, const struct blob_attr *env,
@@ -639,11 +646,11 @@ rpc_file_exec_run(const char *cmd,
 		dup2(opipe[1], 1);
 		dup2(epipe[1], 2);
 
-		close(devnull);
-		close(opipe[0]);
-		close(opipe[1]);
-		close(epipe[0]);
-		close(epipe[1]);
+		rpc_fdclose(devnull);
+		rpc_fdclose(opipe[0]);
+		rpc_fdclose(opipe[1]);
+		rpc_fdclose(epipe[0]);
+		rpc_fdclose(epipe[1]);
 
 		arglen = 2;
 		args = malloc(sizeof(char *) * arglen);
