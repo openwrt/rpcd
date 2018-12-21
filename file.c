@@ -597,6 +597,7 @@ rpc_file_exec_run(const char *cmd,
 {
 	pid_t pid;
 
+	int devnull;
 	int opipe[2];
 	int epipe[2];
 
@@ -629,10 +630,16 @@ rpc_file_exec_run(const char *cmd,
 	case 0:
 		uloop_done();
 
+		devnull = open("/dev/null", O_RDWR);
+
+		if (devnull == -1)
+			return UBUS_STATUS_UNKNOWN_ERROR;
+
+		dup2(devnull, 0);
 		dup2(opipe[1], 1);
 		dup2(epipe[1], 2);
 
-		close(0);
+		close(devnull);
 		close(opipe[0]);
 		close(opipe[1]);
 		close(epipe[0]);
