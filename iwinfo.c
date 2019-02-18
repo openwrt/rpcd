@@ -512,6 +512,45 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 static int
+rpc_iwinfo_survey(struct ubus_context *ctx, struct ubus_object *obj,
+                    struct ubus_request_data *req, const char *method,
+                    struct blob_attr *msg)
+{
+	char res[IWINFO_BUFSIZE];
+	struct iwinfo_survey_entry *e;
+	void *c, *d;
+	int i, rv, len;
+
+	blob_buf_init(&buf, 0);
+
+	rv = rpc_iwinfo_open(msg);
+
+	c = blobmsg_open_array(&buf, "results");
+
+	if (rv || iw->survey(ifname, res, &len) || len < 0)
+		return UBUS_STATUS_OK;
+
+	for (i = 0; i < len; i += sizeof(struct iwinfo_survey_entry)) {
+		e = (struct iwinfo_survey_entry *)&res[i];
+
+		d = blobmsg_open_table(&buf, NULL);
+		blobmsg_add_u32(&buf, "mhz", e->mhz);
+		blobmsg_add_u32(&buf, "noise", e->noise);
+		blobmsg_add_u64(&buf, "active_time", e->active_time);
+		blobmsg_add_u64(&buf, "busy_time", e->busy_time);
+		blobmsg_add_u64(&buf, "busy_time_ext", e->busy_time_ext);
+		blobmsg_add_u64(&buf, "rx_time", e->rxtime);
+		blobmsg_add_u64(&buf, "tx_time", e->txtime);
+		blobmsg_close_table(&buf, d);
+	}
+
+	blobmsg_close_array(&buf, c);
+	ubus_send_reply(ctx, req, buf.head);
+	rpc_iwinfo_close();
+	return UBUS_STATUS_OK;
+}
+
+static int
 rpc_iwinfo_freqlist(struct ubus_context *ctx, struct ubus_object *obj,
                     struct ubus_request_data *req, const char *method,
                     struct blob_attr *msg)
@@ -791,6 +830,7 @@ rpc_iwinfo_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 		UBUS_METHOD("freqlist",    rpc_iwinfo_freqlist,    rpc_device_policy),
 		UBUS_METHOD("txpowerlist", rpc_iwinfo_txpowerlist, rpc_device_policy),
 		UBUS_METHOD("countrylist", rpc_iwinfo_countrylist, rpc_device_policy),
+		UBUS_METHOD("survey",      rpc_iwinfo_survey,      rpc_device_policy),
 		UBUS_METHOD("phyname",     rpc_iwinfo_phyname,     rpc_uci_policy),
 	};
 
