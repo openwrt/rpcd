@@ -470,6 +470,13 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 			blobmsg_add_u8(&buf, "mfp", a->is_mfp);
 			blobmsg_add_u8(&buf, "tdls", a->is_tdls);
 
+			blobmsg_add_u16(&buf, "mesh llid", a->llid);
+			blobmsg_add_u16(&buf, "mesh plid", a->plid);
+			blobmsg_add_string(&buf, "mesh plink", a->plink_state);
+			blobmsg_add_string(&buf, "mesh local PS", a->local_ps);
+			blobmsg_add_string(&buf, "mesh peer PS", a->peer_ps);
+			blobmsg_add_string(&buf, "mesh non-peer PS", a->nonpeer_ps);
+
 			e = blobmsg_open_table(&buf, "rx");
 			blobmsg_add_u64(&buf, "drop_misc", a->rx_drop_misc);
 			blobmsg_add_u32(&buf, "packets", a->rx_packets);
