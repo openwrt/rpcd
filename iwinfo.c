@@ -458,10 +458,22 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 
 			blobmsg_add_string(&buf, "mac", mac);
 			blobmsg_add_u32(&buf, "signal", a->signal);
+			blobmsg_add_u32(&buf, "signal_avg", a->signal_avg);
 			blobmsg_add_u32(&buf, "noise", a->noise);
 			blobmsg_add_u32(&buf, "inactive", a->inactive);
+			blobmsg_add_u32(&buf, "connected_time", a->connected_time);
+			blobmsg_add_u32(&buf, "thr", a->thr);
+			blobmsg_add_u8(&buf, "authorized", a->is_authorized);
+			blobmsg_add_u8(&buf, "authenticated", a->is_authenticated);
+			blobmsg_add_string(&buf, "preamble", a->is_preamble_short ? "short" : "long");
+			blobmsg_add_u8(&buf, "wme", a->is_wme);
+			blobmsg_add_u8(&buf, "mfp", a->is_mfp);
+			blobmsg_add_u8(&buf, "tdls", a->is_tdls);
 
 			e = blobmsg_open_table(&buf, "rx");
+			blobmsg_add_u64(&buf, "drop_misc", a->rx_drop_misc);
+			blobmsg_add_u32(&buf, "packets", a->rx_packets);
+			blobmsg_add_u32(&buf, "bytes", a->rx_bytes);
 			blobmsg_add_u32(&buf, "rate", a->rx_rate.rate);
 			blobmsg_add_u32(&buf, "mcs", a->rx_rate.mcs);
 			blobmsg_add_u8(&buf, "40mhz", a->rx_rate.is_40mhz);
@@ -469,6 +481,10 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 			blobmsg_close_table(&buf, e);
 
 			e = blobmsg_open_table(&buf, "tx");
+			blobmsg_add_u32(&buf, "failed", a->tx_failed);
+			blobmsg_add_u32(&buf, "retries", a->tx_retries);
+			blobmsg_add_u32(&buf, "packets", a->tx_packets);
+			blobmsg_add_u32(&buf, "bytes", a->tx_bytes);
 			blobmsg_add_u32(&buf, "rate", a->tx_rate.rate);
 			blobmsg_add_u32(&buf, "mcs", a->tx_rate.mcs);
 			blobmsg_add_u8(&buf, "40mhz", a->tx_rate.is_40mhz);
