@@ -822,7 +822,7 @@ rpc_login_test_password(const char *hash, const char *password)
 
 	crypt_hash = crypt(password, hash);
 
-	return !strcmp(crypt_hash, hash);
+	return (crypt_hash && !strcmp(crypt_hash, hash));
 }
 
 static struct uci_section *
