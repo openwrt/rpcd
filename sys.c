@@ -145,7 +145,8 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 		if (n < 0)
 			return rpc_errno_status();
 
-		usleep(100 * 1000);
+		const struct timespec req = {0, 100 * 1000 * 1000};
+		nanosleep(&req, NULL);
 
 		n = write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
 		              blobmsg_data_len(tb[RPC_P_PASSWORD]) - 1);
