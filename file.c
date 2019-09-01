@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE
+
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
@@ -352,6 +354,31 @@ rpc_file_md5(struct ubus_context *ctx, struct ubus_object *obj,
 	return UBUS_STATUS_OK;
 }
 
+static void
+_rpc_file_add_stat(struct stat *s)
+{
+	int type;
+
+	type = S_ISREG(s->st_mode) ? DT_REG :
+	        S_ISDIR(s->st_mode) ? DT_DIR :
+	         S_ISCHR(s->st_mode) ? DT_CHR :
+	          S_ISBLK(s->st_mode) ? DT_BLK :
+	           S_ISFIFO(s->st_mode) ? DT_FIFO :
+	            S_ISLNK(s->st_mode) ? DT_LNK :
+	             S_ISSOCK(s->st_mode) ? DT_SOCK :
+	              DT_UNKNOWN;
+
+	blobmsg_add_string(&buf, "type", d_types[type]);
+	blobmsg_add_u32(&buf, "size",  s->st_size);
+	blobmsg_add_u32(&buf, "mode",  s->st_mode);
+	blobmsg_add_u32(&buf, "atime", s->st_atime);
+	blobmsg_add_u32(&buf, "mtime", s->st_mtime);
+	blobmsg_add_u32(&buf, "ctime", s->st_ctime);
+	blobmsg_add_u32(&buf, "inode", s->st_ino);
+	blobmsg_add_u32(&buf, "uid",   s->st_uid);
+	blobmsg_add_u32(&buf, "gid",   s->st_gid);
+}
+
 static int
 rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
               struct ubus_request_data *req, const char *method,
@@ -359,9 +386,9 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 {
 	DIR *fd;
 	void *c, *d;
-	char *path;
 	struct stat s;
 	struct dirent *e;
+	char *path, *entrypath;
 
 	if (!rpc_check_path(msg, &path, &s))
 		return rpc_errno_status();
@@ -377,10 +404,18 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
 			continue;
 
-		d = blobmsg_open_table(&buf, NULL);
-		blobmsg_add_string(&buf, "name", e->d_name);
-		blobmsg_add_string(&buf, "type", d_types[e->d_type]);
-		blobmsg_close_table(&buf, d);
+		if (asprintf(&entrypath, "%s/%s", path, e->d_name) < 0)
+			continue;
+
+		if (!stat(entrypath, &s))
+		{
+			d = blobmsg_open_table(&buf, NULL);
+			blobmsg_add_string(&buf, "name", e->d_name);
+			_rpc_file_add_stat(&s);
+			blobmsg_close_table(&buf, d);
+		}
+
+		free(entrypath);
 	}
 
 	closedir(fd);
@@ -397,7 +432,6 @@ rpc_file_stat(struct ubus_context *ctx, struct ubus_object *obj,
               struct ubus_request_data *req, const char *method,
               struct blob_attr *msg)
 {
-	int type;
 	char *path;
 	struct stat s;
 
@@ -406,25 +440,8 @@ rpc_file_stat(struct ubus_context *ctx, struct ubus_object *obj,
 
 	blob_buf_init(&buf, 0);
 
-	type = S_ISREG(s.st_mode) ? DT_REG :
-	        S_ISDIR(s.st_mode) ? DT_DIR :
-	         S_ISCHR(s.st_mode) ? DT_CHR :
-	          S_ISBLK(s.st_mode) ? DT_BLK :
-	           S_ISFIFO(s.st_mode) ? DT_FIFO :
-	            S_ISLNK(s.st_mode) ? DT_LNK :
-	             S_ISSOCK(s.st_mode) ? DT_SOCK :
-	              DT_UNKNOWN;
-
 	blobmsg_add_string(&buf, "path", path);
-	blobmsg_add_string(&buf, "type", d_types[type]);
-	blobmsg_add_u32(&buf, "size",  s.st_size);
-	blobmsg_add_u32(&buf, "mode",  s.st_mode);
-	blobmsg_add_u32(&buf, "atime", s.st_atime);
-	blobmsg_add_u32(&buf, "mtime", s.st_mtime);
-	blobmsg_add_u32(&buf, "ctime", s.st_ctime);
-	blobmsg_add_u32(&buf, "inode", s.st_ino);
-	blobmsg_add_u32(&buf, "uid",   s.st_uid);
-	blobmsg_add_u32(&buf, "gid",   s.st_gid);
+	_rpc_file_add_stat(&s);
 
 	ubus_send_reply(ctx, req, buf.head);
 	blob_buf_free(&buf);
