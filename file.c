@@ -70,25 +70,32 @@ struct rpc_file_exec_context {
 
 
 static struct blob_buf buf;
+static char *canonpath;
 
 enum {
 	RPC_F_R_PATH,
+	RPC_F_R_SESSION,
 	__RPC_F_R_MAX,
 };
 
 static const struct blobmsg_policy rpc_file_r_policy[__RPC_F_R_MAX] = {
-	[RPC_F_R_PATH] = { .name = "path", .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_R_PATH]    = { .name = "path", .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_R_SESSION] = { .name = "ubus_rpc_session",
+	                      .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
 	RPC_F_RB_PATH,
 	RPC_F_RB_BASE64,
+	RPC_F_RB_SESSION,
 	__RPC_F_RB_MAX,
 };
 
 static const struct blobmsg_policy rpc_file_rb_policy[__RPC_F_RB_MAX] = {
-	[RPC_F_RB_PATH]   = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
-	[RPC_F_RB_BASE64] = { .name = "base64", .type = BLOBMSG_TYPE_BOOL   },
+	[RPC_F_RB_PATH]    = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_RB_BASE64]  = { .name = "base64", .type = BLOBMSG_TYPE_BOOL   },
+	[RPC_F_RB_SESSION] = { .name = "ubus_rpc_session",
+	                       .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -97,28 +104,34 @@ enum {
 	RPC_F_RW_APPEND,
 	RPC_F_RW_MODE,
 	RPC_F_RW_BASE64,
+	RPC_F_RW_SESSION,
 	__RPC_F_RW_MAX,
 };
 
 static const struct blobmsg_policy rpc_file_rw_policy[__RPC_F_RW_MAX] = {
-	[RPC_F_RW_PATH]   = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
-	[RPC_F_RW_DATA]   = { .name = "data",   .type = BLOBMSG_TYPE_STRING },
-	[RPC_F_RW_APPEND] = { .name = "append", .type = BLOBMSG_TYPE_BOOL  },
-	[RPC_F_RW_MODE]   = { .name = "mode",   .type = BLOBMSG_TYPE_INT32  },
-	[RPC_F_RW_BASE64] = { .name = "base64", .type = BLOBMSG_TYPE_BOOL   },
+	[RPC_F_RW_PATH]    = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_RW_DATA]    = { .name = "data",   .type = BLOBMSG_TYPE_STRING },
+	[RPC_F_RW_APPEND]  = { .name = "append", .type = BLOBMSG_TYPE_BOOL  },
+	[RPC_F_RW_MODE]    = { .name = "mode",   .type = BLOBMSG_TYPE_INT32  },
+	[RPC_F_RW_BASE64]  = { .name = "base64", .type = BLOBMSG_TYPE_BOOL   },
+	[RPC_F_RW_SESSION] = { .name = "ubus_rpc_session",
+	                       .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
 	RPC_E_CMD,
 	RPC_E_PARM,
 	RPC_E_ENV,
+	RPC_E_SESSION,
 	__RPC_E_MAX,
 };
 
 static const struct blobmsg_policy rpc_exec_policy[__RPC_E_MAX] = {
-	[RPC_E_CMD]  = { .name = "command", .type = BLOBMSG_TYPE_STRING },
-	[RPC_E_PARM] = { .name = "params",  .type = BLOBMSG_TYPE_ARRAY  },
-	[RPC_E_ENV]  = { .name = "env",     .type = BLOBMSG_TYPE_TABLE  },
+	[RPC_E_CMD]     = { .name = "command", .type = BLOBMSG_TYPE_STRING },
+	[RPC_E_PARM]    = { .name = "params",  .type = BLOBMSG_TYPE_ARRAY  },
+	[RPC_E_ENV]     = { .name = "env",     .type = BLOBMSG_TYPE_TABLE  },
+	[RPC_E_SESSION] = { .name = "ubus_rpc_session",
+	                    .type = BLOBMSG_TYPE_STRING },
 };
 
 static const char *d_types[] = {
@@ -155,6 +168,94 @@ rpc_errno_status(void)
 	}
 }
 
+static bool
+rpc_file_read_access(const struct blob_attr *sid, const char *path)
+{
+	if (!sid)
+		return true;
+
+	return ops->session_access(blobmsg_data(sid), "file", path, "read");
+}
+
+static bool
+rpc_file_write_access(const struct blob_attr *sid, const char *path)
+{
+	if (!sid)
+		return true;
+
+	return ops->session_access(blobmsg_data(sid), "file", path, "write");
+}
+
+static bool
+rpc_file_exec_access(const struct blob_attr *sid, const char *path)
+{
+	if (!sid)
+		return true;
+
+	return ops->session_access(blobmsg_data(sid), "file", path, "exec");
+}
+
+static char *
+rpc_canonicalize_path(const char *path)
+{
+	char *cp;
+	const char *p;
+
+	if (path == NULL || *path == '\0')
+		return NULL;
+
+	if (canonpath != NULL)
+		free(canonpath);
+
+	canonpath = strdup(path);
+
+	if (canonpath == NULL)
+		return NULL;
+
+	/* normalize */
+	for (cp = canonpath, p = path; *p != '\0'; ) {
+		if (*p != '/')
+			goto next;
+
+		/* skip repeating / */
+		if (p[1] == '/') {
+			p++;
+			continue;
+		}
+
+		/* /./ or /../ */
+		if (p[1] == '.') {
+			/* skip /./ */
+			if ((p[2] == '\0') || (p[2] == '/')) {
+				p += 2;
+				continue;
+			}
+
+			/* collapse /x/../ */
+			if ((p[2] == '.') && ((p[3] == '\0') || (p[3] == '/'))) {
+				while ((cp > canonpath) && (*--cp != '/'))
+					;
+
+				p += 3;
+				continue;
+			}
+		}
+
+next:
+		*cp++ = *p++;
+	}
+
+	/* remove trailing slash if not root / */
+	if ((cp > canonpath + 1) && (cp[-1] == '/'))
+		cp--;
+	else if (cp == canonpath)
+		*cp++ = '/';
+
+	*cp = '\0';
+
+	return canonpath;
+}
+
 static struct blob_attr **
 rpc_check_path(struct blob_attr *msg, char **path, struct stat *s)
 {
@@ -168,7 +269,19 @@ rpc_check_path(struct blob_attr *msg, char **path, struct stat *s)
 		return NULL;
 	}
 
-	*path = blobmsg_data(tb[RPC_F_R_PATH]);
+	*path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_R_PATH]));
+
+	if (*path == NULL)
+	{
+		errno = ENOMEM;
+		return NULL;
+	}
+
+	if (!rpc_file_read_access(tb[RPC_F_R_SESSION], *path))
+	{
+		errno = EACCES;
+		return NULL;
+	}
 
 	if (stat(*path, s))
 		return NULL;
@@ -194,7 +307,13 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb[RPC_F_RB_PATH])
 		return rpc_errno_status();
 
-	path = blobmsg_data(tb[RPC_F_RB_PATH]);
+	path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_RB_PATH]));
+
+	if (path == NULL)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	if (!rpc_file_read_access(tb[RPC_F_RB_SESSION], path))
+		return UBUS_STATUS_PERMISSION_DENIED;
 
 	if (stat(path, &s))
 		return rpc_errno_status();
@@ -271,6 +390,7 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 	int append = O_TRUNC;
 	mode_t prev_mode, mode = 0666;
 	int fd, rv = 0;
+	char *path = NULL;
 	void *data = NULL;
 	ssize_t data_len = 0;
 
@@ -279,6 +399,14 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 
 	if (!tb[RPC_F_RW_PATH] || !tb[RPC_F_RW_DATA])
 		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_RW_PATH]));
+
+	if (path == NULL)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	if (!rpc_file_write_access(tb[RPC_F_RW_SESSION], path))
+		return UBUS_STATUS_PERMISSION_DENIED;
 
 	data = blobmsg_data(tb[RPC_F_RW_DATA]);
 	data_len = blobmsg_data_len(tb[RPC_F_RW_DATA]) - 1;
@@ -290,7 +418,7 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 		mode = blobmsg_get_u32(tb[RPC_F_RW_MODE]);
 
 	prev_mode = umask(0);
-	fd = open(blobmsg_data(tb[RPC_F_RW_PATH]), O_CREAT | O_WRONLY | append, mode);
+	fd = open(path, O_CREAT | O_WRONLY | append, mode);
 	umask(prev_mode);
 	if (fd < 0)
 		return rpc_errno_status();
@@ -615,7 +743,7 @@ rpc_fdclose(int fd)
 }
 
 static int
-rpc_file_exec_run(const char *cmd,
+rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
                   const struct blob_attr *arg, const struct blob_attr *env,
                   struct ubus_context *ctx, struct ubus_request_data *req)
 {
@@ -629,7 +757,7 @@ rpc_file_exec_run(const char *cmd,
 	struct blob_attr *cur;
 
 	uint8_t arglen;
-	char **args, **tmp;
+	char *executable, **args, **tmp;
 
 	struct rpc_file_exec_context *c;
 
@@ -637,6 +765,14 @@ rpc_file_exec_run(const char *cmd,
 
 	if (!cmd)
 		return UBUS_STATUS_NOT_FOUND;
+
+	executable = rpc_canonicalize_path(cmd);
+
+	if (executable == NULL)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	if (!rpc_file_exec_access(sid, executable))
+		return UBUS_STATUS_PERMISSION_DENIED;
 
 	c = malloc(sizeof(*c));
 
@@ -675,7 +811,7 @@ rpc_file_exec_run(const char *cmd,
 		if (!args)
 			return UBUS_STATUS_UNKNOWN_ERROR;
 
-		args[0] = (char *)cmd;
+		args[0] = (char *)executable;
 		args[1] = NULL;
 
 		if (arg)
@@ -717,7 +853,7 @@ rpc_file_exec_run(const char *cmd,
 			}
 		}
 
-		if (execv(cmd, args))
+		if (execv(executable, args))
 			return rpc_errno_status();
 
 	default:
@@ -756,8 +892,8 @@ rpc_file_exec(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!tb[RPC_E_CMD])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
-	return rpc_file_exec_run(blobmsg_data(tb[RPC_E_CMD]),
-					      tb[RPC_E_PARM], tb[RPC_E_ENV], ctx, req);
+	return rpc_file_exec_run(blobmsg_data(tb[RPC_E_CMD]), tb[RPC_E_SESSION],
+	                         tb[RPC_E_PARM], tb[RPC_E_ENV], ctx, req);
 }
 
 
