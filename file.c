@@ -577,6 +577,87 @@ rpc_file_stat(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+static int
+rpc_file_remove_recursive(const char *path);
+
+static int
+rpc_file_remove_recursive(const char *path)
+{
+	DIR *fd;
+	int err = 0;
+	struct stat s;
+	struct dirent *e;
+	char *entrypath;
+
+	if ((fd = opendir(path)) == NULL)
+		return rpc_errno_status();
+
+	for (e = readdir(fd); e != NULL && err == 0; e = readdir(fd))
+	{
+		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+			continue;
+
+		if (asprintf(&entrypath, "%s/%s", path, e->d_name) >= 0)
+		{
+			if (!lstat(entrypath, &s))
+			{
+				if (S_ISDIR(s.st_mode))
+					err = rpc_file_remove_recursive(entrypath);
+				else if (unlink(entrypath))
+					err = rpc_errno_status();
+			}
+
+			free(entrypath);
+		}
+		else
+		{
+			err = UBUS_STATUS_UNKNOWN_ERROR;
+		}
+	}
+
+	closedir(fd);
+
+	if (!err && rmdir(path))
+		return rpc_errno_status();
+
+	return err;
+}
+
+static int
+rpc_file_remove(struct ubus_context *ctx, struct ubus_object *obj,
+                struct ubus_request_data *req, const char *method,
+                struct blob_attr *msg)
+{
+	struct stat s;
+	struct blob_attr *tb[__RPC_F_R_MAX];
+	char *path = NULL;
+
+	blobmsg_parse(rpc_file_r_policy, __RPC_F_R_MAX, tb,
+	              blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_F_RW_PATH])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_RW_PATH]));
+
+	if (path == NULL)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	if (!rpc_file_write_access(tb[RPC_F_R_SESSION], path))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	if (lstat(path, &s))
+		return rpc_errno_status();
+
+	if (S_ISDIR(s.st_mode))
+		return rpc_file_remove_recursive(path);
+
+	if (unlink(path))
+		return rpc_errno_status();
+
+	return 0;
+}
+
 static const char *
 rpc_file_exec_lookup(const char *cmd)
 {
@@ -901,12 +982,13 @@ static int
 rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method file_methods[] = {
-		UBUS_METHOD("read",    rpc_file_read,  rpc_file_rb_policy),
-		UBUS_METHOD("write",   rpc_file_write, rpc_file_rw_policy),
-		UBUS_METHOD("list",    rpc_file_list,  rpc_file_r_policy),
-		UBUS_METHOD("stat",    rpc_file_stat,  rpc_file_r_policy),
-		UBUS_METHOD("md5",     rpc_file_md5,   rpc_file_r_policy),
-		UBUS_METHOD("exec",    rpc_file_exec,  rpc_exec_policy),
+		UBUS_METHOD("read",    rpc_file_read,   rpc_file_rb_policy),
+		UBUS_METHOD("write",   rpc_file_write,  rpc_file_rw_policy),
+		UBUS_METHOD("list",    rpc_file_list,   rpc_file_r_policy),
+		UBUS_METHOD("stat",    rpc_file_stat,   rpc_file_r_policy),
+		UBUS_METHOD("md5",     rpc_file_md5,    rpc_file_r_policy),
+		UBUS_METHOD("remove",  rpc_file_remove, rpc_file_r_policy),
+		UBUS_METHOD("exec",    rpc_file_exec,   rpc_exec_policy),
 	};
 
 	static struct ubus_object_type file_type =
