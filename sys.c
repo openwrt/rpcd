@@ -88,6 +88,7 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 	ssize_t n;
 	int ret;
 	const char *const passwd = "/bin/passwd";
+	const struct timespec req = {0, 100 * 1000 * 1000};
 
 	blobmsg_parse(rpc_password_policy, __RPC_P_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -145,7 +146,6 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 		if (n < 0)
 			return rpc_errno_status();
 
-		const struct timespec req = {0, 100 * 1000 * 1000};
 		nanosleep(&req, NULL);
 
 		n = write(fds[1], blobmsg_data(tb[RPC_P_PASSWORD]),
