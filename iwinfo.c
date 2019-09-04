@@ -412,6 +412,26 @@ rpc_iwinfo_scan(struct ubus_context *ctx, struct ubus_object *obj,
 	return UBUS_STATUS_OK;
 }
 
+static void
+rpc_iwinfo_add_rateinfo(struct iwinfo_rate_entry *r)
+{
+	blobmsg_add_u8(&buf, "ht", r->is_ht);
+	blobmsg_add_u8(&buf, "vht", r->is_vht);
+	blobmsg_add_u32(&buf, "mhz", r->mhz);
+	blobmsg_add_u32(&buf, "rate", r->rate);
+
+	if (r->is_ht) {
+		blobmsg_add_u32(&buf, "mcs", r->mcs);
+		blobmsg_add_u8(&buf, "40mhz", r->is_40mhz);
+		blobmsg_add_u8(&buf, "short_gi", r->is_short_gi);
+	}
+	else if (r->is_vht) {
+		blobmsg_add_u32(&buf, "mcs", r->mcs);
+		blobmsg_add_u32(&buf, "nss", r->nss);
+		blobmsg_add_u8(&buf, "short_gi", r->is_short_gi);
+	}
+}
+
 static int
 rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
                      struct ubus_request_data *req, const char *method,
@@ -481,10 +501,7 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 			blobmsg_add_u64(&buf, "drop_misc", a->rx_drop_misc);
 			blobmsg_add_u32(&buf, "packets", a->rx_packets);
 			blobmsg_add_u32(&buf, "bytes", a->rx_bytes);
-			blobmsg_add_u32(&buf, "rate", a->rx_rate.rate);
-			blobmsg_add_u32(&buf, "mcs", a->rx_rate.mcs);
-			blobmsg_add_u8(&buf, "40mhz", a->rx_rate.is_40mhz);
-			blobmsg_add_u8(&buf, "short_gi", a->rx_rate.is_short_gi);
+			rpc_iwinfo_add_rateinfo(&a->rx_rate);
 			blobmsg_close_table(&buf, e);
 
 			e = blobmsg_open_table(&buf, "tx");
@@ -492,10 +509,7 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 			blobmsg_add_u32(&buf, "retries", a->tx_retries);
 			blobmsg_add_u32(&buf, "packets", a->tx_packets);
 			blobmsg_add_u32(&buf, "bytes", a->tx_bytes);
-			blobmsg_add_u32(&buf, "rate", a->tx_rate.rate);
-			blobmsg_add_u32(&buf, "mcs", a->tx_rate.mcs);
-			blobmsg_add_u8(&buf, "40mhz", a->tx_rate.is_40mhz);
-			blobmsg_add_u8(&buf, "short_gi", a->tx_rate.is_short_gi);
+			rpc_iwinfo_add_rateinfo(&a->tx_rate);
 			blobmsg_close_table(&buf, e);
 
 			found = true;
