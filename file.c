@@ -78,7 +78,7 @@ enum {
 	__RPC_F_R_MAX,
 };
 
-static const struct blobmsg_policy rpc_file_r_policy[__RPC_F_R_MAX] = {
+static const struct blobmsg_policy rpc_file_R_policy[__RPC_F_R_MAX] = {
 	[RPC_F_R_PATH]    = { .name = "path", .type = BLOBMSG_TYPE_STRING },
 	[RPC_F_R_SESSION] = { .name = "ubus_rpc_session",
 	                      .type = BLOBMSG_TYPE_STRING },
@@ -91,7 +91,7 @@ enum {
 	__RPC_F_RB_MAX,
 };
 
-static const struct blobmsg_policy rpc_file_rb_policy[__RPC_F_RB_MAX] = {
+static const struct blobmsg_policy rpc_file_RB_policy[__RPC_F_RB_MAX] = {
 	[RPC_F_RB_PATH]    = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
 	[RPC_F_RB_BASE64]  = { .name = "base64", .type = BLOBMSG_TYPE_BOOL   },
 	[RPC_F_RB_SESSION] = { .name = "ubus_rpc_session",
@@ -108,7 +108,7 @@ enum {
 	__RPC_F_RW_MAX,
 };
 
-static const struct blobmsg_policy rpc_file_rw_policy[__RPC_F_RW_MAX] = {
+static const struct blobmsg_policy rpc_file_RW_policy[__RPC_F_RW_MAX] = {
 	[RPC_F_RW_PATH]    = { .name = "path",   .type = BLOBMSG_TYPE_STRING },
 	[RPC_F_RW_DATA]    = { .name = "data",   .type = BLOBMSG_TYPE_STRING },
 	[RPC_F_RW_APPEND]  = { .name = "append", .type = BLOBMSG_TYPE_BOOL  },
@@ -169,30 +169,13 @@ rpc_errno_status(void)
 }
 
 static bool
-rpc_file_read_access(const struct blob_attr *sid, const char *path)
+rpc_file_access(const struct blob_attr *sid,
+                const char *path, const char *perm)
 {
 	if (!sid)
 		return true;
 
-	return ops->session_access(blobmsg_data(sid), "file", path, "read");
-}
-
-static bool
-rpc_file_write_access(const struct blob_attr *sid, const char *path)
-{
-	if (!sid)
-		return true;
-
-	return ops->session_access(blobmsg_data(sid), "file", path, "write");
-}
-
-static bool
-rpc_file_exec_access(const struct blob_attr *sid, const char *path)
-{
-	if (!sid)
-		return true;
-
-	return ops->session_access(blobmsg_data(sid), "file", path, "exec");
+	return ops->session_access(blobmsg_data(sid), "file", path, perm);
 }
 
 static char *
@@ -257,19 +240,21 @@ next:
 }
 
 static struct blob_attr **
-rpc_check_path(struct blob_attr *msg, char **path, struct stat *s)
+__rpc_check_path(const struct blobmsg_policy *policy, size_t policy_len,
+                 int policy_path_idx, int policy_sid_idx, const char *perm,
+                 struct blob_attr *msg, char **path, struct stat *s)
 {
-	static struct blob_attr *tb[__RPC_F_R_MAX];
+	static struct blob_attr *tb[__RPC_F_RW_MAX]; /* largest _MAX constant */
 
-	blobmsg_parse(rpc_file_r_policy, __RPC_F_R_MAX, tb, blob_data(msg), blob_len(msg));
+	blobmsg_parse(policy, policy_len, tb, blob_data(msg), blob_len(msg));
 
-	if (!tb[RPC_F_R_PATH])
+	if (!tb[policy_path_idx])
 	{
 		errno = EINVAL;
 		return NULL;
 	}
 
-	*path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_R_PATH]));
+	*path = rpc_canonicalize_path(blobmsg_get_string(tb[policy_path_idx]));
 
 	if (*path == NULL)
 	{
@@ -277,24 +262,31 @@ rpc_check_path(struct blob_attr *msg, char **path, struct stat *s)
 		return NULL;
 	}
 
-	if (!rpc_file_read_access(tb[RPC_F_R_SESSION], *path))
+	if (!rpc_file_access(tb[policy_sid_idx], *path, perm))
 	{
 		errno = EACCES;
 		return NULL;
 	}
 
-	if (stat(*path, s))
+	if (s != NULL && stat(*path, s) != 0)
 		return NULL;
 
 	return tb;
 }
+
+#define rpc_check_path(msg, policy_selector, perm, path, s) \
+	__rpc_check_path(rpc_file_ ## policy_selector ## _policy, \
+		ARRAY_SIZE(rpc_file_ ## policy_selector ## _policy), \
+		RPC_F_ ## policy_selector ## _PATH, \
+		RPC_F_ ## policy_selector ## _SESSION, \
+		perm, msg, path, s)
 
 static int
 rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
               struct ubus_request_data *req, const char *method,
               struct blob_attr *msg)
 {
-	static struct blob_attr *tb[__RPC_F_RB_MAX];
+	struct blob_attr **tb;
 	bool base64 = false;
 	int fd, rv;
 	ssize_t len;
@@ -302,20 +294,9 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
 	struct stat s;
 	char *wbuf;
 
-	blobmsg_parse(rpc_file_rb_policy, __RPC_F_RB_MAX, tb, blob_data(msg), blob_len(msg));
+	tb = rpc_check_path(msg, RB, "read", &path, &s);
 
-	if (!tb[RPC_F_RB_PATH])
-		return rpc_errno_status();
-
-	path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_RB_PATH]));
-
-	if (path == NULL)
-		return UBUS_STATUS_UNKNOWN_ERROR;
-
-	if (!rpc_file_read_access(tb[RPC_F_RB_SESSION], path))
-		return UBUS_STATUS_PERMISSION_DENIED;
-
-	if (stat(path, &s))
+	if (tb == NULL)
 		return rpc_errno_status();
 
 	if (s.st_size >= RPC_FILE_MAX_SIZE)
@@ -386,7 +367,7 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
                struct ubus_request_data *req, const char *method,
                struct blob_attr *msg)
 {
-	struct blob_attr *tb[__RPC_F_RW_MAX];
+	struct blob_attr **tb;
 	int append = O_TRUNC;
 	mode_t prev_mode, mode = 0666;
 	int fd, rv = 0;
@@ -394,19 +375,13 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 	void *data = NULL;
 	ssize_t data_len = 0;
 
-	blobmsg_parse(rpc_file_rw_policy, __RPC_F_RW_MAX, tb,
-	              blob_data(msg), blob_len(msg));
+	tb = rpc_check_path(msg, RW, "write", &path, NULL);
 
-	if (!tb[RPC_F_RW_PATH] || !tb[RPC_F_RW_DATA])
+	if (tb == NULL)
+		return rpc_errno_status();
+
+	if (!tb[RPC_F_RW_DATA])
 		return UBUS_STATUS_INVALID_ARGUMENT;
-
-	path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_RW_PATH]));
-
-	if (path == NULL)
-		return UBUS_STATUS_UNKNOWN_ERROR;
-
-	if (!rpc_file_write_access(tb[RPC_F_RW_SESSION], path))
-		return UBUS_STATUS_PERMISSION_DENIED;
 
 	data = blobmsg_data(tb[RPC_F_RW_DATA]);
 	data_len = blobmsg_data_len(tb[RPC_F_RW_DATA]) - 1;
@@ -460,7 +435,7 @@ rpc_file_md5(struct ubus_context *ctx, struct ubus_object *obj,
 	uint8_t md5[16];
 	char *wbuf;
 
-	if (!rpc_check_path(msg, &path, &s))
+	if (!rpc_check_path(msg, R, "read", &path, &s))
 		return rpc_errno_status();
 
 	if (!S_ISREG(s.st_mode))
@@ -518,7 +493,7 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 	struct dirent *e;
 	char *path, *entrypath;
 
-	if (!rpc_check_path(msg, &path, &s))
+	if (!rpc_check_path(msg, R, "list", &path, NULL))
 		return rpc_errno_status();
 
 	if ((fd = opendir(path)) == NULL)
@@ -563,7 +538,7 @@ rpc_file_stat(struct ubus_context *ctx, struct ubus_object *obj,
 	char *path;
 	struct stat s;
 
-	if (!rpc_check_path(msg, &path, &s))
+	if (!rpc_check_path(msg, R, "list", &path, &s))
 		return rpc_errno_status();
 
 	blob_buf_init(&buf, 0);
@@ -629,22 +604,10 @@ rpc_file_remove(struct ubus_context *ctx, struct ubus_object *obj,
                 struct blob_attr *msg)
 {
 	struct stat s;
-	struct blob_attr *tb[__RPC_F_R_MAX];
 	char *path = NULL;
 
-	blobmsg_parse(rpc_file_r_policy, __RPC_F_R_MAX, tb,
-	              blob_data(msg), blob_len(msg));
-
-	if (!tb[RPC_F_RW_PATH])
-		return UBUS_STATUS_INVALID_ARGUMENT;
-
-	path = rpc_canonicalize_path(blobmsg_get_string(tb[RPC_F_RW_PATH]));
-
-	if (path == NULL)
-		return UBUS_STATUS_UNKNOWN_ERROR;
-
-	if (!rpc_file_write_access(tb[RPC_F_R_SESSION], path))
-		return UBUS_STATUS_PERMISSION_DENIED;
+	if (!rpc_check_path(msg, R, "write", &path, NULL))
+		return rpc_errno_status();
 
 	if (lstat(path, &s))
 		return rpc_errno_status();
@@ -852,7 +815,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 	if (executable == NULL)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
-	if (!rpc_file_exec_access(sid, executable))
+	if (!rpc_file_access(sid, executable, "exec"))
 		return UBUS_STATUS_PERMISSION_DENIED;
 
 	c = malloc(sizeof(*c));
@@ -982,12 +945,12 @@ static int
 rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 {
 	static const struct ubus_method file_methods[] = {
-		UBUS_METHOD("read",    rpc_file_read,   rpc_file_rb_policy),
-		UBUS_METHOD("write",   rpc_file_write,  rpc_file_rw_policy),
-		UBUS_METHOD("list",    rpc_file_list,   rpc_file_r_policy),
-		UBUS_METHOD("stat",    rpc_file_stat,   rpc_file_r_policy),
-		UBUS_METHOD("md5",     rpc_file_md5,    rpc_file_r_policy),
-		UBUS_METHOD("remove",  rpc_file_remove, rpc_file_r_policy),
+		UBUS_METHOD("read",    rpc_file_read,   rpc_file_RB_policy),
+		UBUS_METHOD("write",   rpc_file_write,  rpc_file_RW_policy),
+		UBUS_METHOD("list",    rpc_file_list,   rpc_file_R_policy),
+		UBUS_METHOD("stat",    rpc_file_stat,   rpc_file_R_policy),
+		UBUS_METHOD("md5",     rpc_file_md5,    rpc_file_R_policy),
+		UBUS_METHOD("remove",  rpc_file_remove, rpc_file_R_policy),
 		UBUS_METHOD("exec",    rpc_file_exec,   rpc_exec_policy),
 	};
 
