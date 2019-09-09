@@ -131,7 +131,7 @@ rpc_iwinfo_call_hardware_id(const char *name)
 static void
 rpc_iwinfo_add_encryption(const char *name, struct iwinfo_crypto_entry *e)
 {
-	int ciph;
+	int ciph, wpa_version;
 	void *c, *d;
 
 	c = blobmsg_open_table(&buf, name);
@@ -156,15 +156,9 @@ rpc_iwinfo_add_encryption(const char *name, struct iwinfo_crypto_entry *e)
 		{
 			d = blobmsg_open_array(&buf, "wpa");
 
-			if (e->wpa_version > 2)
-			{
-				blobmsg_add_u32(&buf, NULL, 1);
-				blobmsg_add_u32(&buf, NULL, 2);
-			}
-			else
-			{
-				blobmsg_add_u32(&buf, NULL, e->wpa_version);
-			}
+			for (wpa_version = 1; wpa_version <= 3; wpa_version++)
+				if (e->wpa_version & (1 << (wpa_version - 1)))
+					blobmsg_add_u32(&buf, NULL, wpa_version);
 
 			blobmsg_close_array(&buf, d);
 
@@ -176,6 +170,12 @@ rpc_iwinfo_add_encryption(const char *name, struct iwinfo_crypto_entry *e)
 
 			if (e->auth_suites & IWINFO_KMGMT_8021x)
 				blobmsg_add_string(&buf, NULL, "802.1x");
+
+			if (e->auth_suites & IWINFO_KMGMT_SAE)
+				blobmsg_add_string(&buf, NULL, "sae");
+
+			if (e->auth_suites & IWINFO_KMGMT_OWE)
+				blobmsg_add_string(&buf, NULL, "owe");
 
 			if (!e->auth_suites ||
 				(e->auth_suites & IWINFO_KMGMT_NONE))
