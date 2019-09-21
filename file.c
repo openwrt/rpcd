@@ -38,7 +38,7 @@
 #include <rpcd/plugin.h>
 
 /* limit of sys & proc files */
-#define RPC_FILE_MIN_SIZE		(128)
+#define RPC_FILE_MIN_SIZE		(4096)
 
 /* limit of regular files and command output data */
 #define RPC_FILE_MAX_SIZE		(4096 * 64)
