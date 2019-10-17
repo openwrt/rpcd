@@ -135,14 +135,14 @@ rpc_plugin_call(struct ubus_context *ctx, struct ubus_object *obj,
 {
 	int rv = UBUS_STATUS_UNKNOWN_ERROR;
 	struct call_context *c;
-	char *plugin;
+	char *plugin, *mptr;
 
-	c = calloc(1, sizeof(*c));
+	c = calloc_a(sizeof(*c), &mptr, strlen(method) + 1);
 
 	if (!c)
 		goto fail;
 
-	c->method = strdup(method);
+	c->method = strcpy(mptr, method);
 	c->input = blobmsg_format_json(msg, true);
 	c->tok = json_tokener_new();
 
