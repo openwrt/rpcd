@@ -823,13 +823,16 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 	if (!c)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
-	if (pipe(opipe) || pipe(epipe))
-		return rpc_errno_status();
+	if (pipe(opipe))
+		goto fail_opipe;
+
+	if (pipe(epipe))
+		goto fail_epipe;
 
 	switch ((pid = fork()))
 	{
 	case -1:
-		return rpc_errno_status();
+		goto fail_fork;
 
 	case 0:
 		uloop_done();
@@ -921,6 +924,18 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 	}
 
 	return UBUS_STATUS_OK;
+
+fail_fork:
+	close(epipe[0]);
+	close(epipe[1]);
+
+fail_epipe:
+	close(opipe[0]);
+	close(opipe[1]);
+
+fail_opipe:
+	free(c);
+	return rpc_errno_status();
 }
 
 static int
