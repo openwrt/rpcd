@@ -321,11 +321,16 @@ rpc_plugin_parse_exec(const char *name, int fd)
 
 	obj_type = calloc(1, sizeof(*obj_type));
 
-	if (!obj_type)
+	if (!obj_type) {
+		free(obj);
 		return NULL;
+	}
 
-	if (asprintf((char **)&obj_type->name, "luci-rpc-plugin-%s", name) < 0)
+	if (asprintf((char **)&obj_type->name, "luci-rpc-plugin-%s", name) < 0) {
+		free(obj);
+		free(obj_type);
 		return NULL;
+	}
 
 	obj_type->methods = methods;
 	obj_type->n_methods = n_method;
