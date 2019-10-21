@@ -47,10 +47,15 @@ static void
 exec_self(int argc, char **argv)
 {
 	int i;
-	const char *cmd = rpc_exec_lookup(argv[0]);
-	char **args = calloc(argc + 1, sizeof(char *));
+	const char *cmd;
+	char **args;
 
-	if (!cmd || !args)
+	cmd = rpc_exec_lookup(argv[0]);
+	if (!cmd)
+		return;
+
+	args = calloc(argc + 1, sizeof(char *));
+	if (!args)
 		return;
 
 	for (i = 0; i < argc; i++)
