@@ -313,7 +313,7 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 	switch ((pid = fork()))
 	{
 	case -1:
-		return rpc_errno_status();
+		goto fail_fork;
 
 	case 0:
 		uloop_done();
@@ -372,6 +372,10 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 
 	return UBUS_STATUS_OK;
 
+fail_fork:
+	close(epipe[0]);
+	close(epipe[1]);
+
 fail_epipe:
 	close(opipe[0]);
 	close(opipe[1]);
@@ -381,5 +385,6 @@ fail_opipe:
 	close(ipipe[1]);
 
 fail_ipipe:
+	free(c);
 	return rpc_errno_status();
 }

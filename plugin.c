@@ -161,9 +161,12 @@ rpc_plugin_call(struct ubus_context *ctx, struct ubus_object *obj,
 	c->argv[1] = "call";
 	c->argv[2] = c->method;
 
-	return rpc_exec(c->argv, rpc_plugin_call_stdin_cb,
-	                rpc_plugin_call_stdout_cb, rpc_plugin_call_stderr_cb,
-	                rpc_plugin_call_finish_cb, c, ctx, req);
+	rv = rpc_exec(c->argv, rpc_plugin_call_stdin_cb,
+	              rpc_plugin_call_stdout_cb, rpc_plugin_call_stderr_cb,
+	              rpc_plugin_call_finish_cb, c, ctx, req);
+
+	if (rv == UBUS_STATUS_OK)
+		return rv;
 
 fail:
 	if (c)
