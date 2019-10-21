@@ -1286,6 +1286,8 @@ rpc_uci_changes(struct ubus_context *ctx, struct ubus_object *obj,
 		uci_unload(cursor, p);
 	}
 
+	free(configs);
+
 	blobmsg_close_table(&buf, c);
 
 	ubus_send_reply(ctx, req, buf.head);
@@ -1389,6 +1391,8 @@ rpc_uci_configs(struct ubus_context *ctx, struct ubus_object *obj,
 
 	for (i = 0; configs[i]; i++)
 		blobmsg_add_string(&buf, NULL, configs[i]);
+
+	free(configs);
 
 	blobmsg_close_array(&buf, c);
 
