@@ -131,13 +131,13 @@ rpc_exec_reply(struct rpc_exec_context *c, int rv)
 			rpc_ustream_to_blobmsg(&c->blob, &c->opipe.stream, "stdout");
 			rpc_ustream_to_blobmsg(&c->blob, &c->epipe.stream, "stderr");
 		}
-
-		if (c->finish_cb)
-			rv = c->finish_cb(&c->blob, c->stat, c->priv);
-
-		if (rv == UBUS_STATUS_OK)
-			ubus_send_reply(c->context, &c->request, c->blob.head);
 	}
+
+	if (c->finish_cb)
+		rv = c->finish_cb(&c->blob, c->stat, c->priv);
+
+	if (rv == UBUS_STATUS_OK)
+		ubus_send_reply(c->context, &c->request, c->blob.head);
 
 	ubus_complete_deferred_request(c->context, &c->request, rv);
 
