@@ -146,7 +146,7 @@ rpc_plugin_call(struct ubus_context *ctx, struct ubus_object *obj,
 	c->input = blobmsg_format_json(msg, true);
 	c->tok = json_tokener_new();
 
-	if (!c->method || !c->input || !c->tok)
+	if (!c->input || !c->tok)
 		goto fail;
 
 	plugin = c->path + sprintf(c->path, "%s/", RPC_PLUGIN_DIRECTORY);
@@ -171,9 +171,6 @@ rpc_plugin_call(struct ubus_context *ctx, struct ubus_object *obj,
 fail:
 	if (c)
 	{
-		if (c->method)
-			free(c->method);
-
 		if (c->input)
 			free(c->input);
 
