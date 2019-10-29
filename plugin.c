@@ -123,7 +123,6 @@ rpc_plugin_call_finish_cb(struct blob_buf *blob, int stat, void *priv)
 	json_tokener_free(c->tok);
 
 	free(c->input);
-	free(c->method);
 
 	return rv;
 }
