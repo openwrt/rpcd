@@ -51,6 +51,74 @@ rpc_plugin_lookup_plugin(struct ubus_context *ctx, struct ubus_object *obj,
 	return c.found;
 }
 
+static void
+rpc_plugin_json_array_to_blob(struct array_list *a, struct blob_buf *blob);
+
+static void
+rpc_plugin_json_object_to_blob(json_object *o, struct blob_buf *blob);
+
+static void
+rpc_plugin_json_element_to_blob(const char *name, json_object *val,
+                                struct blob_buf *blob)
+{
+	void *c;
+	int64_t n;
+
+	switch (json_object_get_type(val)) {
+	case json_type_object:
+		c = blobmsg_open_table(blob, name);
+		rpc_plugin_json_object_to_blob(val, blob);
+		blobmsg_close_table(blob, c);
+		break;
+
+	case json_type_array:
+		c = blobmsg_open_array(blob, name);
+		rpc_plugin_json_array_to_blob(json_object_get_array(val), blob);
+		blobmsg_close_array(blob, c);
+		break;
+
+	case json_type_string:
+		blobmsg_add_string(blob, name, json_object_get_string(val));
+		break;
+
+	case json_type_boolean:
+		blobmsg_add_u8(blob, name, json_object_get_boolean(val));
+		break;
+
+	case json_type_int:
+		n = json_object_get_int64(val);
+		if (n >= INT32_MIN && n <= INT32_MAX)
+			blobmsg_add_u32(blob, name, n);
+		else
+			blobmsg_add_u64(blob, name, n);
+		break;
+
+	case json_type_double:
+		blobmsg_add_double(blob, name, json_object_get_double(val));
+		break;
+
+	case json_type_null:
+		blobmsg_add_field(blob, BLOBMSG_TYPE_UNSPEC, name, NULL, 0);
+		break;
+	}
+}
+
+static void
+rpc_plugin_json_array_to_blob(struct array_list *a, struct blob_buf *blob)
+{
+	int i, len;
+
+	for (i = 0, len = array_list_length(a); i < len; i++)
+		rpc_plugin_json_element_to_blob(NULL, array_list_get_idx(a, i), blob);
+}
+
+static void
+rpc_plugin_json_object_to_blob(json_object *o, struct blob_buf *blob)
+{
+	json_object_object_foreach(o, key, val)
+		rpc_plugin_json_element_to_blob(key, val, blob);
+}
+
 struct call_context {
 	char path[PATH_MAX];
 	const char *argv[4];
@@ -108,9 +176,11 @@ rpc_plugin_call_finish_cb(struct blob_buf *blob, int stat, void *priv)
 	{
 		if (c->obj)
 		{
-			if (json_object_get_type(c->obj) == json_type_object &&
-			    blobmsg_add_object(blob, c->obj))
+			if (json_object_get_type(c->obj) == json_type_object)
+			{
+				rpc_plugin_json_object_to_blob(c->obj, blob);
 				rv = UBUS_STATUS_OK;
+			}
 
 			json_object_put(c->obj);
 		}
