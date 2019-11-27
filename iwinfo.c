@@ -290,6 +290,48 @@ rpc_iwinfo_call_hwmodes(const char *name)
 	}
 }
 
+static void rpc_iwinfo_call_hw_ht_mode()
+{
+	const char *hwmode_str;
+	const char *htmode_str;
+	int32_t htmode = 0;
+
+	if (iw->htmode(ifname, &htmode))
+		return;
+
+	switch (htmode) {
+		case IWINFO_HTMODE_HT20:
+			htmode_str = "HT20";
+			hwmode_str = "n";
+			break;
+		case IWINFO_HTMODE_HT40:
+			htmode_str = "HT40";
+			hwmode_str = "n";
+			break;
+		case IWINFO_HTMODE_VHT80:
+			htmode_str = "VHT80";
+			hwmode_str = "ac";
+			break;
+		case IWINFO_HTMODE_VHT80_80:
+			htmode_str = "VHT80+80";
+			hwmode_str = "ac";
+			break;
+		case IWINFO_HTMODE_VHT160:
+			htmode_str = "VHT160";
+			hwmode_str = "ac";
+			break;
+		case IWINFO_HTMODE_NOHT:
+			htmode_str = "20";
+			hwmode_str = "a/g";
+			break;
+		default:
+			htmode_str = hwmode_str = "unknown";
+			break;
+	}
+	blobmsg_add_string(&buf, "hwmode", hwmode_str);
+	blobmsg_add_string(&buf, "htmode", htmode_str);
+}
+
 static void
 rpc_iwinfo_call_str(const char *name, int (*func)(const char *, char *))
 {
@@ -340,6 +382,8 @@ rpc_iwinfo_info(struct ubus_context *ctx, struct ubus_object *obj,
 	rpc_iwinfo_call_encryption("encryption");
 	rpc_iwinfo_call_htmodes("htmodes");
 	rpc_iwinfo_call_hwmodes("hwmodes");
+
+	rpc_iwinfo_call_hw_ht_mode();
 
 	c = blobmsg_open_table(&buf, "hardware");
 	rpc_iwinfo_call_hardware_id("id");
