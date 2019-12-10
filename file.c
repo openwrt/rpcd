@@ -43,6 +43,9 @@
 /* limit of regular files and command output data */
 #define RPC_FILE_MAX_SIZE		(4096 * 64)
 
+/* limit of command line length for exec acl checks */
+#define RPC_CMDLINE_MAX_SIZE	(1024)
+
 #define ustream_for_each_read_buffer(stream, ptr, len) \
 	for (ptr = ustream_get_read_buf(stream, &len);     \
 	     ptr != NULL && len > 0;                       \
@@ -71,6 +74,7 @@ struct rpc_file_exec_context {
 
 static struct blob_buf buf;
 static char *canonpath;
+static char cmdstr[RPC_CMDLINE_MAX_SIZE];
 
 enum {
 	RPC_F_R_PATH,
@@ -801,7 +805,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 	struct blob_attr *cur;
 
 	uint8_t arglen;
-	char *executable, **args, **tmp;
+	char *executable, **args, **tmp, *p;
 
 	struct rpc_file_exec_context *c;
 
@@ -816,7 +820,29 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
 	if (!rpc_file_access(sid, executable, "exec"))
-		return UBUS_STATUS_PERMISSION_DENIED;
+	{
+		if (arg == NULL || strlen(executable) >= sizeof(cmdstr))
+			return UBUS_STATUS_PERMISSION_DENIED;
+
+		arglen = 0;
+		p = cmdstr + sprintf(cmdstr, "%s", executable);
+
+		blobmsg_for_each_attr(cur, arg, rem)
+		{
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
+				continue;
+
+			if (arglen == 255 ||
+			    p + blobmsg_data_len(cur) >= cmdstr + sizeof(cmdstr))
+				break;
+
+			p += sprintf(p, " %s", blobmsg_get_string(cur));
+			arglen++;
+		}
+
+		if (!rpc_file_access(sid, cmdstr, "exec"))
+			return UBUS_STATUS_PERMISSION_DENIED;
+	}
 
 	c = malloc(sizeof(*c));
 
