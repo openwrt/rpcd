@@ -795,7 +795,7 @@ rpc_login_test_password(const char *hash, const char *password)
 	char *crypt_hash;
 
 	/* password is not set */
-	if (!hash || !*hash || !strcmp(hash, "!") || !strcmp(hash, "x"))
+	if (!hash || !*hash)
 	{
 		return true;
 	}
