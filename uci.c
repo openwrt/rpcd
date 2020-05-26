@@ -734,6 +734,7 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 	{
 		blobmsg_for_each_attr(cur, tb[RPC_A_VALUES], rem)
 		{
+			ptr.flags = 0;
 			ptr.o = NULL;
 			ptr.option = blobmsg_name(cur);
 
