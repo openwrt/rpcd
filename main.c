@@ -25,10 +25,11 @@
 #include <signal.h>
 #include <sys/stat.h>
 
+#include <rpcd/exec.h>
+#include <rpcd/plugin.h>
+#include <rpcd/rc.h>
 #include <rpcd/session.h>
 #include <rpcd/uci.h>
-#include <rpcd/plugin.h>
-#include <rpcd/exec.h>
 
 static struct ubus_context *ctx;
 static bool respawn = false;
@@ -113,6 +114,7 @@ int main(int argc, char **argv)
 
 	rpc_session_api_init(ctx);
 	rpc_uci_api_init(ctx);
+	rpc_rc_api_init(ctx);
 	rpc_plugin_api_init(ctx);
 
 	hangup = getenv("RPC_HANGUP");

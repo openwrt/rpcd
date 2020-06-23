@@ -38,7 +38,7 @@ INCLUDE_DIRECTORIES(${ubus_include_dir})
 FIND_PATH(ubox_include_dir libubox/blobmsg_json.h)
 INCLUDE_DIRECTORIES(${ubox_include_dir})
 
-ADD_EXECUTABLE(rpcd main.c exec.c session.c uci.c plugin.c)
+ADD_EXECUTABLE(rpcd main.c exec.c session.c uci.c rc.c plugin.c)
 TARGET_LINK_LIBRARIES(rpcd ${ubox} ${ubus} ${uci} ${blobmsg_json} ${json} ${crypt} dl)
 
 SET(PLUGINS "")
