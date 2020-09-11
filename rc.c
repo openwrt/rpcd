@@ -43,8 +43,8 @@ struct rc_list_context {
 	struct {
 		char path[PATH_MAX];
 		const char *d_name;
-		unsigned int start;
-		unsigned int stop;
+		int start;
+		int stop;
 		bool enabled;
 		bool running;
 	} entry;
@@ -76,9 +76,9 @@ static void rc_list_add_table(struct rc_list_context *c)
 
 	e = blobmsg_open_table(c->buf, c->entry.d_name);
 
-	if (c->entry.start)
+	if (c->entry.start >= 0)
 		blobmsg_add_u16(c->buf, "start", c->entry.start);
-	if (c->entry.stop)
+	if (c->entry.stop >= 0)
 		blobmsg_add_u16(c->buf, "stop", c->entry.stop);
 	blobmsg_add_u8(c->buf, "enabled", c->entry.enabled);
 	blobmsg_add_u8(c->buf, "running", c->entry.running);
@@ -174,6 +174,8 @@ static void rc_list_readdir(struct rc_list_context *c)
 		goto next;
 
 	memset(&c->entry, 0, sizeof(c->entry));
+	c->entry.start = -1;
+	c->entry.stop = -1;
 
 	snprintf(c->entry.path, sizeof(c->entry.path), "/etc/init.d/%s", e->d_name);
 	if (rc_check_script(c->entry.path))
@@ -189,7 +191,7 @@ static void rc_list_readdir(struct rc_list_context *c)
 		bool beginning;
 
 		beginning = true;
-		while (!c->entry.start && !c->entry.stop && fgets(line, sizeof(line), fp)) {
+		while (c->entry.start < 0 && c->entry.stop < 0 && fgets(line, sizeof(line), fp)) {
 			if (beginning) {
 				if (!strncmp(line, "START=", 6)) {
 					c->entry.start = strtoul(line + 6, NULL, 0);
@@ -202,9 +204,11 @@ static void rc_list_readdir(struct rc_list_context *c)
 		}
 		fclose(fp);
 
-		snprintf(path, sizeof(path), "/etc/rc.d/S%02d%s", c->entry.start, c->entry.d_name);
-		if (!stat(path, &s) && (s.st_mode & S_IXUSR))
-			c->entry.enabled = true;
+		if (c->entry.start >= 0) {
+			snprintf(path, sizeof(path), "/etc/rc.d/S%02d%s", c->entry.start, c->entry.d_name);
+			if (!stat(path, &s) && (s.st_mode & S_IXUSR))
+				c->entry.enabled = true;
+		}
 	}
 
 	if (rc_list_exec(c, "running", rc_list_exec_running_cb))
