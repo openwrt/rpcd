@@ -403,7 +403,7 @@ rpc_iwinfo_scan(struct ubus_context *ctx, struct ubus_object *obj,
                 struct blob_attr *msg)
 {
 	int i, rv, len;
-	void *c, *d;
+	void *c, *d, *t;
 	char mac[18];
 	char res[IWINFO_BUFSIZE];
 	struct iwinfo_scanlist_entry *e;
@@ -440,6 +440,20 @@ rpc_iwinfo_scan(struct ubus_context *ctx, struct ubus_object *obj,
 
 			blobmsg_add_u32(&buf, "quality", e->quality);
 			blobmsg_add_u32(&buf, "quality_max", e->quality_max);
+
+			t = blobmsg_open_table(&buf, "ht_operation");
+			blobmsg_add_u32(&buf, "primary_channel", e->ht_chan_info.primary_chan);
+			blobmsg_add_string(&buf, "secondary_channel_offset", ht_secondary_offset[e->ht_chan_info.secondary_chan_off]);
+			blobmsg_add_u32(&buf, "channel_width", ht_chan_width[e->ht_chan_info.chan_width]);
+			blobmsg_close_table(&buf, t);
+
+			if (e->vht_chan_info.center_chan_1) {
+				t = blobmsg_open_table(&buf, "vht_operation");
+				blobmsg_add_u32(&buf, "channel_width", vht_chan_width[e->vht_chan_info.chan_width]);
+				blobmsg_add_u32(&buf, "center_freq_1", e->vht_chan_info.center_chan_1);
+				blobmsg_add_u32(&buf, "center_freq_2", e->vht_chan_info.center_chan_2);
+				blobmsg_close_table(&buf, t);
+			}
 
 			rpc_iwinfo_add_encryption("encryption", &e->crypto);
 
