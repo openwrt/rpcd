@@ -364,6 +364,8 @@ rpc_iwinfo_info(struct ubus_context *ctx, struct ubus_object *obj,
 
 	rpc_iwinfo_call_int("mode", iw->mode, IWINFO_OPMODE_NAMES);
 	rpc_iwinfo_call_int("channel", iw->channel, NULL);
+	rpc_iwinfo_call_int("center_chan1", iw->center_chan1, NULL);
+	rpc_iwinfo_call_int("center_chan2", iw->center_chan2, NULL);
 
 	rpc_iwinfo_call_int("frequency", iw->frequency, NULL);
 	rpc_iwinfo_call_int("frequency_offset", iw->frequency_offset, NULL);
