@@ -831,8 +831,10 @@ rpc_uci_merge_set(struct blob_attr *opt, struct uci_ptr *ptr)
 
 	if (blobmsg_type(opt) == BLOBMSG_TYPE_ARRAY)
 	{
-		if (ptr->o)
+		if (ptr->o) {
 			uci_delete(cursor, ptr);
+			ptr->flags = 0;
+		}
 
 		rv = UBUS_STATUS_INVALID_ARGUMENT;
 
@@ -850,6 +852,7 @@ rpc_uci_merge_set(struct blob_attr *opt, struct uci_ptr *ptr)
 	else if (ptr->o && ptr->o->type == UCI_TYPE_LIST)
 	{
 		uci_delete(cursor, ptr);
+		ptr->flags = 0;
 
 		if (!rpc_uci_format_blob(opt, &ptr->value))
 			return UBUS_STATUS_INVALID_ARGUMENT;
@@ -981,6 +984,7 @@ rpc_uci_merge_delete(struct blob_attr *opt, struct uci_ptr *ptr)
 				continue;
 
 			uci_delete(cursor, ptr);
+			ptr->flags = 0;
 			rv = 0;
 		}
 
