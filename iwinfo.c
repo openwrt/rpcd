@@ -301,6 +301,12 @@ static void rpc_iwinfo_call_hw_ht_mode()
 	const char *hwmode_str;
 	const char *htmode_str;
 	int32_t htmode = 0;
+	int modes;
+
+	if (!iw->hwmodelist(ifname, &modes) && (modes == IWINFO_80211_AD)) {
+		blobmsg_add_string(&buf, "hwmode", "ad");
+		return;
+	}
 
 	if (iw->htmode(ifname, &htmode))
 		return;
