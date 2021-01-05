@@ -199,6 +199,9 @@ rpc_iwinfo_add_encryption(const char *name, struct iwinfo_crypto_entry *e)
 		if (ciph & IWINFO_CIPHER_CCMP)
 			blobmsg_add_string(&buf, NULL, "ccmp");
 
+		if (ciph & IWINFO_CIPHER_GCMP)
+			blobmsg_add_string(&buf, NULL, "gcmp");
+
 		if (ciph & IWINFO_CIPHER_WRAP)
 			blobmsg_add_string(&buf, NULL, "wrap");
 
@@ -270,6 +273,9 @@ rpc_iwinfo_call_hwmodes(const char *name)
 	if (!iw->hwmodelist(ifname, &modes))
 	{
 		c = blobmsg_open_array(&buf, name);
+
+		if (modes & IWINFO_80211_AD)
+			blobmsg_add_string(&buf, NULL, "ad");
 
 		if (modes & IWINFO_80211_AC)
 			blobmsg_add_string(&buf, NULL, "ac");
