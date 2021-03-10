@@ -228,6 +228,18 @@ procstr:
 			continue;
 		}
 
+		/* If there is ABIVersion, remove that suffix */
+		if (!strcmp(var, "ABIVersion:")) {
+			if (strlen(pkg) <= strlen(p1))
+				continue;
+			tmp = &pkg[strlen(pkg) - strlen(p1)];
+			if (strncmp(p1, tmp, strlen(p1)))
+				continue;
+
+			*tmp = '\0';
+			continue;
+		}
+
 		if (!strcmp(var, "Version:")) {
 			strncpy(ver, p1, sizeof(ver));
 			continue;
