@@ -260,6 +260,21 @@ rpc_iwinfo_call_htmodes(const char *name)
 		if (modes & IWINFO_HTMODE_VHT160)
 			blobmsg_add_string(&buf, NULL, "VHT160");
 
+		if (modes & IWINFO_HTMODE_HE20)
+			blobmsg_add_string(&buf, NULL, "HE20");
+
+		if (modes & IWINFO_HTMODE_HE40)
+			blobmsg_add_string(&buf, NULL, "HE40");
+
+		if (modes & IWINFO_HTMODE_HE80)
+			blobmsg_add_string(&buf, NULL, "HE80");
+
+		if (modes & IWINFO_HTMODE_HE80_80)
+			blobmsg_add_string(&buf, NULL, "HE80+80");
+
+		if (modes & IWINFO_HTMODE_HE160)
+			blobmsg_add_string(&buf, NULL, "HE160");
+
 		blobmsg_close_array(&buf, c);
 	}
 }
@@ -279,6 +294,9 @@ rpc_iwinfo_call_hwmodes(const char *name)
 
 		if (modes & IWINFO_80211_AC)
 			blobmsg_add_string(&buf, NULL, "ac");
+
+		if (modes & IWINFO_80211_AX)
+			blobmsg_add_string(&buf, NULL, "ax");
 
 		if (modes & IWINFO_80211_A)
 			blobmsg_add_string(&buf, NULL, "a");
@@ -331,6 +349,26 @@ static void rpc_iwinfo_call_hw_ht_mode()
 		case IWINFO_HTMODE_VHT160:
 			htmode_str = "VHT160";
 			hwmode_str = "ac";
+			break;
+		case IWINFO_HTMODE_HE20:
+			htmode_str = "HE20";
+			hwmode_str = "ax";
+			break;
+		case IWINFO_HTMODE_HE40:
+			htmode_str = "HE40";
+			hwmode_str = "ax";
+			break;
+		case IWINFO_HTMODE_HE80:
+			htmode_str = "HE80";
+			hwmode_str = "ax";
+			break;
+		case IWINFO_HTMODE_HE80_80:
+			htmode_str = "HE80+80";
+			hwmode_str = "ax";
+			break;
+		case IWINFO_HTMODE_HE160:
+			htmode_str = "HE160";
+			hwmode_str = "ax";
 			break;
 		case IWINFO_HTMODE_NOHT:
 			htmode_str = "20";
@@ -491,6 +529,7 @@ rpc_iwinfo_add_rateinfo(struct iwinfo_rate_entry *r)
 {
 	blobmsg_add_u8(&buf, "ht", r->is_ht);
 	blobmsg_add_u8(&buf, "vht", r->is_vht);
+	blobmsg_add_u8(&buf, "he", r->is_he);
 	blobmsg_add_u32(&buf, "mhz", r->mhz);
 	blobmsg_add_u32(&buf, "rate", r->rate);
 
@@ -503,6 +542,12 @@ rpc_iwinfo_add_rateinfo(struct iwinfo_rate_entry *r)
 		blobmsg_add_u32(&buf, "mcs", r->mcs);
 		blobmsg_add_u32(&buf, "nss", r->nss);
 		blobmsg_add_u8(&buf, "short_gi", r->is_short_gi);
+	}
+	else if (r->is_he) {
+		blobmsg_add_u32(&buf, "mcs", r->mcs);
+		blobmsg_add_u32(&buf, "nss", r->nss);
+		blobmsg_add_u32(&buf, "he_gi", r->he_gi);
+		blobmsg_add_u32(&buf, "he_dcm", r->he_dcm);
 	}
 }
 
