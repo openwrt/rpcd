@@ -834,6 +834,12 @@ rpc_login_test_login(struct uci_context *uci,
 	struct uci_element *e;
 	struct uci_ptr ptr = { .package = "rpcd" };
 
+	if (!uci_lookup_ptr(uci, &ptr, NULL, false) && ptr.p) {
+		uci_unload(uci, ptr.p);
+		ptr.flags = 0;
+		ptr.p = NULL;
+	}
+
 	uci_load(uci, ptr.package, &p);
 
 	if (!p)
