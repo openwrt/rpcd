@@ -1309,7 +1309,7 @@ rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr)
 
 	avl_insert(&sessions, &ses->avl);
 
-	uloop_timeout_set(&ses->t, blobmsg_get_u32(tb[RPC_DUMP_EXPIRES]) * 1000);
+	uloop_timeout_set(&ses->t, blobmsg_get_u64(tb[RPC_DUMP_EXPIRES]) * 1000);
 
 	return true;
 }
