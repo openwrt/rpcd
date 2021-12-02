@@ -489,8 +489,12 @@ rpc_plugin_register_library(struct ubus_context *ctx, const char *path)
 
 	dlh = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
 
-	if (!dlh)
+	if (!dlh) {
+		fprintf(stderr, "Failed to load plugin %s: %s\n",
+		        path, dlerror());
+
 		return UBUS_STATUS_UNKNOWN_ERROR;
+	}
 
 	p = dlsym(dlh, "rpc_plugin");
 
