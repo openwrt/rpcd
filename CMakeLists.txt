@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.6)
 INCLUDE(CheckFunctionExists)
 
 PROJECT(rpcd C)
-ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations)
+ADD_DEFINITIONS(-Os -Wall -Werror --std=gnu99 -g3 -Wmissing-declarations -DINSTALL_PREFIX="${CMAKE_INSTALL_PREFIX}")
 INCLUDE_DIRECTORIES(include)
 
 OPTION(FILE_SUPPORT "File plugin support" ON)
@@ -67,5 +67,5 @@ ENDIF()
 
 INSTALL(TARGETS rpcd ${PLUGINS}
 	RUNTIME DESTINATION sbin
-	LIBRARY DESTINATION lib
+	LIBRARY DESTINATION lib/rpcd
 )

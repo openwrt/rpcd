@@ -34,7 +34,7 @@
 #define RPC_DEFAULT_SESSION_TIMEOUT	300
 #define RPC_DEFAULT_SESSION_ID	"00000000000000000000000000000000"
 #define RPC_SESSION_DIRECTORY	"/var/run/rpcd/sessions"
-#define RPC_SESSION_ACL_DIR		"/usr/share/rpcd/acl.d"
+#define RPC_SESSION_ACL_DIR		INSTALL_PREFIX "/share/rpcd/acl.d"
 
 extern char apply_sid[RPC_SID_LEN + 1];
 
