@@ -1778,7 +1778,7 @@ int rpc_uci_api_init(struct ubus_context *ctx)
 	};
 
 	static struct ubus_object_type uci_type =
-		UBUS_OBJECT_TYPE("luci-rpc-uci", uci_methods);
+		UBUS_OBJECT_TYPE("rpcd-plugin-uci", uci_methods);
 
 	static struct ubus_object obj = {
 		.name = "uci",

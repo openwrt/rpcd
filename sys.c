@@ -355,7 +355,7 @@ rpc_sys_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 	};
 
 	static struct ubus_object_type sys_type =
-		UBUS_OBJECT_TYPE("luci-rpc-sys", sys_methods);
+		UBUS_OBJECT_TYPE("rpcd-plugin-sys", sys_methods);
 
 	static struct ubus_object obj = {
 		.name = "rpc-sys",

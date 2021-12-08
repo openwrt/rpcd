@@ -996,7 +996,7 @@ rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 	};
 
 	static struct ubus_object_type file_type =
-		UBUS_OBJECT_TYPE("luci-rpc-file", file_methods);
+		UBUS_OBJECT_TYPE("rpcd-plugin-file", file_methods);
 
 	static struct ubus_object obj = {
 		.name = "file",

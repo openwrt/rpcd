@@ -975,7 +975,7 @@ rpc_iwinfo_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 	};
 
 	static struct ubus_object_type iwinfo_type =
-		UBUS_OBJECT_TYPE("luci-rpc-iwinfo", iwinfo_methods);
+		UBUS_OBJECT_TYPE("rpcd-plugin-iwinfo", iwinfo_methods);
 
 	static struct ubus_object obj = {
 		.name = "iwinfo",

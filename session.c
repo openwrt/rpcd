@@ -1332,7 +1332,7 @@ int rpc_session_api_init(struct ubus_context *ctx)
 	};
 
 	static struct ubus_object_type session_type =
-		UBUS_OBJECT_TYPE("luci-rpc-session", session_methods);
+		UBUS_OBJECT_TYPE("rpcd-plugin-session", session_methods);
 
 	static struct ubus_object obj = {
 		.name = "session",

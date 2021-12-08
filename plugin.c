@@ -395,7 +395,7 @@ rpc_plugin_parse_exec(const char *name, int fd)
 		return NULL;
 	}
 
-	if (asprintf((char **)&obj_type->name, "luci-rpc-plugin-%s", name) < 0) {
+	if (asprintf((char **)&obj_type->name, "rpcd-plugin-exec-%s", name) < 0) {
 		free(obj);
 		free(obj_type);
 		return NULL;
