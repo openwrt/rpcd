@@ -635,6 +635,11 @@ rpc_iwinfo_freqlist(struct ubus_context *ctx, struct ubus_object *obj,
 			blobmsg_add_u32(&buf, "mhz", f->mhz);
 			blobmsg_add_u8(&buf, "restricted", f->restricted);
 
+			rpc_iwinfo_add_bit_array("flags", f->flags,
+						IWINFO_FREQ_FLAG_NAMES,
+						IWINFO_FREQ_FLAG_COUNT,
+						true, 0);
+
 			if (ch > -1)
 				blobmsg_add_u8(&buf, "active", f->channel == ch);
 
