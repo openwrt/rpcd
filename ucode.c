@@ -507,22 +507,22 @@ rpc_ucode_script_call(struct ubus_context *ctx, struct ubus_object *obj,
 	return UBUS_STATUS_OK;
 }
 
-static uc_function_t *
+static uc_program_t *
 rpc_ucode_script_compile(const char *path, uc_source_t *src)
 {
 	char *syntax_error = NULL;
-	uc_function_t *progfunc;
+	uc_program_t *prog;
 
-	progfunc = uc_compile(&config, src, &syntax_error);
+	prog = uc_compile(&config, src, &syntax_error);
 
-	if (!progfunc)
+	if (!prog)
 		fprintf(stderr, "Unable to compile ucode script %s: %s\n",
 		        path, syntax_error);
 
 	uc_source_put(src);
 	free(syntax_error);
 
-	return progfunc;
+	return prog;
 }
 
 static bool
@@ -906,7 +906,7 @@ rpc_ucode_init_globals(rpc_ucode_script_t *script)
 }
 
 static rpc_ucode_script_t *
-rpc_ucode_script_execute(struct ubus_context *ctx, const char *path, uc_function_t *func)
+rpc_ucode_script_execute(struct ubus_context *ctx, const char *path, uc_program_t *prog)
 {
 	rpc_ucode_script_t *script;
 	uc_value_t *signature;
@@ -921,7 +921,7 @@ rpc_ucode_script_execute(struct ubus_context *ctx, const char *path, uc_function
 		fprintf(stderr, "Unable to allocate context for ucode script %s: %s\n",
 		        path, strerror(errno));
 
-		ucv_put(&func->header);
+		uc_program_put(prog);
 
 		return NULL;
 	}
@@ -931,13 +931,14 @@ rpc_ucode_script_execute(struct ubus_context *ctx, const char *path, uc_function
 	uc_vm_init(&script->vm, &config);
 	rpc_ucode_init_globals(script);
 
-	status = uc_vm_execute(&script->vm, func, &signature);
+	status = uc_vm_execute(&script->vm, prog, &signature);
 
 	script->pending_replies = ucv_array_new(&script->vm);
 
 	uc_vm_registry_set(&script->vm, "rpcd.ucode.signature", signature);
 	uc_vm_registry_set(&script->vm, "rpcd.ucode.deferreds", script->pending_replies);
 
+	uc_program_put(prog);
 	ucv_gc(&script->vm);
 
 	switch (status) {
@@ -972,7 +973,7 @@ static int
 rpc_ucode_init_script(struct ubus_context *ctx, const char *path)
 {
 	rpc_ucode_script_t *script;
-	uc_function_t *progfunc;
+	uc_program_t *prog;
 	uc_source_t *src;
 
 	src = uc_source_new_file(path);
@@ -984,12 +985,12 @@ rpc_ucode_init_script(struct ubus_context *ctx, const char *path)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 	}
 
-	progfunc = rpc_ucode_script_compile(path, src);
+	prog = rpc_ucode_script_compile(path, src);
 
-	if (!progfunc)
+	if (!prog)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
-	script = rpc_ucode_script_execute(ctx, path, progfunc);
+	script = rpc_ucode_script_execute(ctx, path, prog);
 
 	if (!script)
 		return UBUS_STATUS_UNKNOWN_ERROR;
