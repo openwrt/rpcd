@@ -561,7 +561,7 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 	char res[IWINFO_BUFSIZE];
 	struct iwinfo_assoclist_entry *a;
 	struct ether_addr *macaddr = NULL;
-	void *c, *d, *e;
+	void *c = NULL, *d, *e;
 	struct blob_attr *tb[__RPC_A_MAX];
 	bool found = false;
 
