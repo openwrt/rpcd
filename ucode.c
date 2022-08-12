@@ -77,7 +77,8 @@ typedef struct {
 static uc_parse_config_t config = {
 	.strict_declarations = false,
 	.lstrip_blocks = true,
-	.trim_blocks = true
+	.trim_blocks = true,
+	.raw_mode = true
 };
 
 
@@ -928,6 +929,7 @@ rpc_ucode_script_execute(struct ubus_context *ctx, const char *path, uc_program_
 
 	script->path = strncpy(pptr, path, pathlen);
 
+	uc_search_path_init(&config.module_search_path);
 	uc_vm_init(&script->vm, &config);
 	rpc_ucode_init_globals(script);
 
