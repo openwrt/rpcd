@@ -929,7 +929,6 @@ rpc_ucode_script_execute(struct ubus_context *ctx, const char *path, uc_program_
 
 	script->path = strncpy(pptr, path, pathlen);
 
-	uc_search_path_init(&config.module_search_path);
 	uc_vm_init(&script->vm, &config);
 	rpc_ucode_init_globals(script);
 
@@ -1019,6 +1018,10 @@ rpc_ucode_api_init(const struct rpc_daemon_ops *ops, struct ubus_context *ctx)
 		fprintf(stderr, "Failed to dlopen() ucode.so: %s, dynamic ucode plugins may fail\n",
 		        dlerror());
 	}
+
+	/* initialize default module search path */
+	uc_search_path_init(&config.module_search_path);
+
 	if ((d = opendir(RPC_UCSCRIPT_DIRECTORY)) != NULL) {
 		while ((e = readdir(d)) != NULL) {
 			snprintf(path, sizeof(path), RPC_UCSCRIPT_DIRECTORY "/%s", e->d_name);
