@@ -304,8 +304,13 @@ rpc_ucode_validate_call_args(struct ubus_object *obj, const char *ubus_method_na
 		}
 
 		/* named argument not found in policy */
-		if (!found)
+		if (!found) {
+			/* allow special ubus_rpc_session argument */
+			if (!strcmp("ubus_rpc_session", (char *)hdr->name) && blob_id(attr) == BLOBMSG_TYPE_STRING)
+			    continue;
+
 			goto inval;
+		}
 	}
 
 	*res = rpc_ucode_blob_array_to_ucv(&script->vm, blob_data(msg), blob_len(msg), true);
