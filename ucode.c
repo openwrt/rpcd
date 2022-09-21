@@ -401,6 +401,7 @@ rpc_ucode_script_call(struct ubus_context *ctx, struct ubus_object *obj,
 	rpc_ucode_script_t *script = rpc_ucode_obj_to_script(obj);
 	uc_value_t *func, *args = NULL, *reqobj, *reqproto, *res;
 	rpc_ucode_call_ctx_t *callctx;
+	const char *extype;
 	size_t i;
 	int rv;
 
@@ -499,6 +500,23 @@ rpc_ucode_script_call(struct ubus_context *ctx, struct ubus_object *obj,
 
 	/* treat other exceptions as unknown error */
 	default:
+		switch (script->vm.exception.type) {
+		case EXCEPTION_SYNTAX:    extype = "Syntax error";    break;
+		case EXCEPTION_RUNTIME:   extype = "Runtime error";   break;
+		case EXCEPTION_TYPE:      extype = "Type error";      break;
+		case EXCEPTION_REFERENCE: extype = "Reference error"; break;
+		default:                  extype = "Exception";
+		}
+
+		res = ucv_object_get(
+			ucv_array_get(script->vm.exception.stacktrace, 0),
+			"context", NULL);
+
+		fprintf(stderr,
+			"Unhandled ucode exception in '%s' method!\n%s: %s\n\n%s\n",
+			ubus_method_name, extype, script->vm.exception.message,
+			ucv_string_get(res));
+
 		ubus_complete_deferred_request(ctx, &callctx->req, UBUS_STATUS_UNKNOWN_ERROR);
 		callctx->replied = true;
 		break;
