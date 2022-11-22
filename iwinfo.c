@@ -17,6 +17,7 @@
  */
 
 #include <sys/types.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <libubus.h>
 #include <iwinfo.h>
@@ -129,9 +130,52 @@ rpc_iwinfo_call_hardware_id(const char *name)
 }
 
 static void
+rpc_iwinfo_lower(const char *src, char *dst, size_t len)
+{
+	size_t i;
+
+	for (i = 0; *src && i < len; i++)
+		*dst++ = tolower(*src++);
+
+	*dst = 0;
+}
+
+static void
+rpc_iwinfo_add_bit_array(const char *name, uint32_t bits,
+                         const char * const values[], size_t len,
+                         bool lower, uint32_t zero)
+{
+	void *c;
+	size_t i;
+	char l[128];
+	const char *v;
+
+	if (!bits)
+		bits = zero;
+
+	c = blobmsg_open_array(&buf, name);
+
+	for (i = 0; i < len; i++)
+		if (bits & 1 << i)
+		{
+			v = values[i];
+
+			if (lower)
+			{
+				rpc_iwinfo_lower(v, l, strlen(values[i]));
+				v = l;
+			}
+
+			blobmsg_add_string(&buf, NULL, v);
+		}
+
+	blobmsg_close_array(&buf, c);
+}
+
+static void
 rpc_iwinfo_add_encryption(const char *name, struct iwinfo_crypto_entry *e)
 {
-	int ciph, wpa_version;
+	int wpa_version;
 	void *c, *d;
 
 	c = blobmsg_open_table(&buf, name);
@@ -142,15 +186,10 @@ rpc_iwinfo_add_encryption(const char *name, struct iwinfo_crypto_entry *e)
 	{
 		if (!e->wpa_version)
 		{
-			d = blobmsg_open_array(&buf, "wep");
-
-			if (e->auth_algs & IWINFO_AUTH_OPEN)
-				blobmsg_add_string(&buf, NULL, "open");
-
-			if (e->auth_algs & IWINFO_AUTH_SHARED)
-				blobmsg_add_string(&buf, NULL, "shared");
-
-			blobmsg_close_array(&buf, d);
+			rpc_iwinfo_add_bit_array("wep", e->auth_algs,
+						IWINFO_AUTH_NAMES,
+						IWINFO_AUTH_COUNT,
+						true, 0);
 		}
 		else
 		{
@@ -162,59 +201,19 @@ rpc_iwinfo_add_encryption(const char *name, struct iwinfo_crypto_entry *e)
 
 			blobmsg_close_array(&buf, d);
 
-
-			d = blobmsg_open_array(&buf, "authentication");
-
-			if (e->auth_suites & IWINFO_KMGMT_PSK)
-				blobmsg_add_string(&buf, NULL, "psk");
-
-			if (e->auth_suites & IWINFO_KMGMT_8021x)
-				blobmsg_add_string(&buf, NULL, "802.1x");
-
-			if (e->auth_suites & IWINFO_KMGMT_SAE)
-				blobmsg_add_string(&buf, NULL, "sae");
-
-			if (e->auth_suites & IWINFO_KMGMT_OWE)
-				blobmsg_add_string(&buf, NULL, "owe");
-
-			if (!e->auth_suites ||
-				(e->auth_suites & IWINFO_KMGMT_NONE))
-				blobmsg_add_string(&buf, NULL, "none");
-
-			blobmsg_close_array(&buf, d);
+			rpc_iwinfo_add_bit_array("authentication",
+						e->auth_suites,
+						IWINFO_KMGMT_NAMES,
+						IWINFO_KMGMT_COUNT,
+						true, IWINFO_KMGMT_NONE);
 		}
 
-		d = blobmsg_open_array(&buf, "ciphers");
-		ciph = e->pair_ciphers | e->group_ciphers;
 
-		if (ciph & IWINFO_CIPHER_WEP40)
-			blobmsg_add_string(&buf, NULL, "wep-40");
-
-		if (ciph & IWINFO_CIPHER_WEP104)
-			blobmsg_add_string(&buf, NULL, "wep-104");
-
-		if (ciph & IWINFO_CIPHER_TKIP)
-			blobmsg_add_string(&buf, NULL, "tkip");
-
-		if (ciph & IWINFO_CIPHER_CCMP)
-			blobmsg_add_string(&buf, NULL, "ccmp");
-
-		if (ciph & IWINFO_CIPHER_GCMP)
-			blobmsg_add_string(&buf, NULL, "gcmp");
-
-		if (ciph & IWINFO_CIPHER_WRAP)
-			blobmsg_add_string(&buf, NULL, "wrap");
-
-		if (ciph & IWINFO_CIPHER_AESOCB)
-			blobmsg_add_string(&buf, NULL, "aes-ocb");
-
-		if (ciph & IWINFO_CIPHER_CKIP)
-			blobmsg_add_string(&buf, NULL, "ckip");
-
-		if (!ciph || (ciph & IWINFO_CIPHER_NONE))
-			blobmsg_add_string(&buf, NULL, "none");
-
-		blobmsg_close_array(&buf, d);
+		rpc_iwinfo_add_bit_array("ciphers",
+					e->pair_ciphers | e->group_ciphers,
+					IWINFO_CIPHER_NAMES,
+					IWINFO_CIPHER_COUNT,
+					true, IWINFO_CIPHER_NONE);
 	}
 
 	blobmsg_close_table(&buf, c);
@@ -233,85 +232,26 @@ static void
 rpc_iwinfo_call_htmodes(const char *name)
 {
 	int modes;
-	void *c;
 
-	if (!iw->htmodelist(ifname, &modes))
-	{
-		c = blobmsg_open_array(&buf, name);
+	if (iw->htmodelist(ifname, &modes))
+		return;
 
-		if (modes & IWINFO_HTMODE_HT20)
-			blobmsg_add_string(&buf, NULL, "HT20");
-
-		if (modes & IWINFO_HTMODE_HT40)
-			blobmsg_add_string(&buf, NULL, "HT40");
-
-		if (modes & IWINFO_HTMODE_VHT20)
-			blobmsg_add_string(&buf, NULL, "VHT20");
-
-		if (modes & IWINFO_HTMODE_VHT40)
-			blobmsg_add_string(&buf, NULL, "VHT40");
-
-		if (modes & IWINFO_HTMODE_VHT80)
-			blobmsg_add_string(&buf, NULL, "VHT80");
-
-		if (modes & IWINFO_HTMODE_VHT80_80)
-			blobmsg_add_string(&buf, NULL, "VHT80+80");
-
-		if (modes & IWINFO_HTMODE_VHT160)
-			blobmsg_add_string(&buf, NULL, "VHT160");
-
-		if (modes & IWINFO_HTMODE_HE20)
-			blobmsg_add_string(&buf, NULL, "HE20");
-
-		if (modes & IWINFO_HTMODE_HE40)
-			blobmsg_add_string(&buf, NULL, "HE40");
-
-		if (modes & IWINFO_HTMODE_HE80)
-			blobmsg_add_string(&buf, NULL, "HE80");
-
-		if (modes & IWINFO_HTMODE_HE80_80)
-			blobmsg_add_string(&buf, NULL, "HE80+80");
-
-		if (modes & IWINFO_HTMODE_HE160)
-			blobmsg_add_string(&buf, NULL, "HE160");
-
-		blobmsg_close_array(&buf, c);
-	}
+	rpc_iwinfo_add_bit_array(name, modes & ~IWINFO_HTMODE_NOHT,
+				IWINFO_HTMODE_NAMES, IWINFO_HTMODE_COUNT,
+				false, 0);
 }
 
 static void
 rpc_iwinfo_call_hwmodes(const char *name)
 {
 	int modes;
-	void *c;
 
-	if (!iw->hwmodelist(ifname, &modes))
-	{
-		c = blobmsg_open_array(&buf, name);
+	if (iw->hwmodelist(ifname, &modes))
+		return;
 
-		if (modes & IWINFO_80211_AD)
-			blobmsg_add_string(&buf, NULL, "ad");
-
-		if (modes & IWINFO_80211_AC)
-			blobmsg_add_string(&buf, NULL, "ac");
-
-		if (modes & IWINFO_80211_AX)
-			blobmsg_add_string(&buf, NULL, "ax");
-
-		if (modes & IWINFO_80211_A)
-			blobmsg_add_string(&buf, NULL, "a");
-
-		if (modes & IWINFO_80211_B)
-			blobmsg_add_string(&buf, NULL, "b");
-
-		if (modes & IWINFO_80211_G)
-			blobmsg_add_string(&buf, NULL, "g");
-
-		if (modes & IWINFO_80211_N)
-			blobmsg_add_string(&buf, NULL, "n");
-
-		blobmsg_close_array(&buf, c);
-	}
+	rpc_iwinfo_add_bit_array(name, modes,
+				IWINFO_80211_NAMES, IWINFO_80211_COUNT,
+				false, 0);
 }
 
 static void rpc_iwinfo_call_hw_ht_mode()
@@ -321,7 +261,11 @@ static void rpc_iwinfo_call_hw_ht_mode()
 	int32_t htmode = 0;
 	int modes;
 
-	if (!iw->hwmodelist(ifname, &modes) && (modes == IWINFO_80211_AD)) {
+	if (iw->hwmodelist(ifname, &modes))
+		return;
+
+	if (modes == IWINFO_80211_AD)
+	{
 		blobmsg_add_string(&buf, "hwmode", "ad");
 		return;
 	}
@@ -329,55 +273,20 @@ static void rpc_iwinfo_call_hw_ht_mode()
 	if (iw->htmode(ifname, &htmode))
 		return;
 
-	switch (htmode) {
-		case IWINFO_HTMODE_HT20:
-			htmode_str = "HT20";
+	htmode_str = iwinfo_htmode_name(htmode);
+	if (htmode_str)
+	{
+		if (iwinfo_htmode_is_ht(htmode))
 			hwmode_str = "n";
-			break;
-		case IWINFO_HTMODE_HT40:
-			htmode_str = "HT40";
-			hwmode_str = "n";
-			break;
-		case IWINFO_HTMODE_VHT80:
-			htmode_str = "VHT80";
+		else if (iwinfo_htmode_is_vht(htmode))
 			hwmode_str = "ac";
-			break;
-		case IWINFO_HTMODE_VHT80_80:
-			htmode_str = "VHT80+80";
-			hwmode_str = "ac";
-			break;
-		case IWINFO_HTMODE_VHT160:
-			htmode_str = "VHT160";
-			hwmode_str = "ac";
-			break;
-		case IWINFO_HTMODE_HE20:
-			htmode_str = "HE20";
+		else if (iwinfo_htmode_is_he(htmode))
 			hwmode_str = "ax";
-			break;
-		case IWINFO_HTMODE_HE40:
-			htmode_str = "HE40";
-			hwmode_str = "ax";
-			break;
-		case IWINFO_HTMODE_HE80:
-			htmode_str = "HE80";
-			hwmode_str = "ax";
-			break;
-		case IWINFO_HTMODE_HE80_80:
-			htmode_str = "HE80+80";
-			hwmode_str = "ax";
-			break;
-		case IWINFO_HTMODE_HE160:
-			htmode_str = "HE160";
-			hwmode_str = "ax";
-			break;
-		case IWINFO_HTMODE_NOHT:
-			htmode_str = "20";
+		else
 			hwmode_str = "a/g";
-			break;
-		default:
-			htmode_str = hwmode_str = "unknown";
-			break;
-	}
+	} else
+		htmode_str = hwmode_str = "unknown";
+
 	blobmsg_add_string(&buf, "hwmode", hwmode_str);
 	blobmsg_add_string(&buf, "htmode", htmode_str);
 }
