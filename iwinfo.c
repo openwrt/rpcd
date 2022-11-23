@@ -258,9 +258,13 @@ rpc_iwinfo_call_hwmodes(const char *name)
 
 static void rpc_iwinfo_call_hw_ht_mode(int hwmodelist)
 {
+	char text[32];
 	const char *hwmode_str;
 	const char *htmode_str;
 	int htmode;
+
+	if (iwinfo_format_hwmodes(hwmodelist, text, sizeof(text)) > 0)
+		blobmsg_add_string(&buf, "hwmodes_text", text);
 
 	if (hwmodelist == IWINFO_80211_AD)
 	{
