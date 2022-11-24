@@ -366,7 +366,7 @@ rpc_iwinfo_scan(struct ubus_context *ctx, struct ubus_object *obj,
                 struct ubus_request_data *req, const char *method,
                 struct blob_attr *msg)
 {
-	int i, rv, len;
+	int i, rv, len, band;
 	void *c, *d, *t;
 	char mac[18];
 	char res[IWINFO_BUFSIZE];
@@ -399,7 +399,11 @@ rpc_iwinfo_scan(struct ubus_context *ctx, struct ubus_object *obj,
 
 			blobmsg_add_string(&buf, "mode", IWINFO_OPMODE_NAMES[e->mode]);
 
+			band = iwinfo_band2ghz(e->band);
+			if (band > 0)
+				blobmsg_add_u32(&buf, "band", band);
 			blobmsg_add_u32(&buf, "channel", e->channel);
+			blobmsg_add_u32(&buf, "mhz", e->mhz);
 			blobmsg_add_u32(&buf, "signal", (uint32_t)(e->signal - 0x100));
 
 			blobmsg_add_u32(&buf, "quality", e->quality);
