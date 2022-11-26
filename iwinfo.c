@@ -96,7 +96,7 @@ rpc_iwinfo_close(void)
 
 static void
 rpc_iwinfo_call_int(const char *name, int (*func)(const char *, int *),
-                    const char **map)
+                    const char * const *map)
 {
 	int rv;
 
