@@ -47,6 +47,7 @@ struct rc_list_context {
 		int stop;
 		bool enabled;
 		bool running;
+		bool use_procd;
 	} entry;
 };
 
@@ -81,7 +82,8 @@ static void rc_list_add_table(struct rc_list_context *c)
 	if (c->entry.stop >= 0)
 		blobmsg_add_u16(c->buf, "stop", c->entry.stop);
 	blobmsg_add_u8(c->buf, "enabled", c->entry.enabled);
-	blobmsg_add_u8(c->buf, "running", c->entry.running);
+	if (c->entry.use_procd)
+		blobmsg_add_u8(c->buf, "running", c->entry.running);
 
 	blobmsg_close_table(c->buf, e);
 }
@@ -112,6 +114,9 @@ static int rc_list_exec(struct rc_list_context *c, const char *action, uloop_pro
 	case -1:
 		return -errno;
 	case 0:
+		if (!c->entry.use_procd)
+			exit(-EOPNOTSUPP);
+
 		/* Set stdin, stdout & stderr to /dev/null */
 		fd = open("/dev/null", O_RDWR);
 		if (fd >= 0) {
@@ -192,13 +197,15 @@ static void rc_list_readdir(struct rc_list_context *c)
 		int count = 0;
 
 		beginning = true;
-		while ((c->entry.start < 0 || c->entry.stop < 0) &&
+		while ((c->entry.start < 0 || c->entry.stop < 0 || !c->entry.use_procd) &&
 		       count <= 10 && fgets(line, sizeof(line), fp)) {
 			if (beginning) {
 				if (!strncmp(line, "START=", 6)) {
 					c->entry.start = strtoul(line + 6, NULL, 0);
 				} else if (!strncmp(line, "STOP=", 5)) {
 					c->entry.stop = strtoul(line + 5, NULL, 0);
+				} else if (!c->skip_running_check && !strncmp(line, "USE_PROCD=", 10)) {
+					c->entry.use_procd = !!strtoul(line + 10, NULL, 0);
 				}
 				count++;
 			}
