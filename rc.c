@@ -21,6 +21,15 @@
 #define RC_LIST_EXEC_TIMEOUT_MS			3000
 
 enum {
+	RC_LIST_SKIP_RUNNING_CHECK,
+	__RC_LIST_MAX
+};
+
+static const struct blobmsg_policy rc_list_policy[] = {
+	[RC_LIST_SKIP_RUNNING_CHECK] = { "skip_running_check", BLOBMSG_TYPE_BOOL },
+};
+
+enum {
 	RC_INIT_NAME,
 	RC_INIT_ACTION,
 	__RC_INIT_MAX
@@ -38,6 +47,7 @@ struct rc_list_context {
 	struct ubus_request_data req;
 	struct blob_buf *buf;
 	DIR *dir;
+	bool skip_running_check;
 
 	/* Info about currently processed init.d entry */
 	struct {
@@ -82,7 +92,7 @@ static void rc_list_add_table(struct rc_list_context *c)
 	if (c->entry.stop >= 0)
 		blobmsg_add_u16(c->buf, "stop", c->entry.stop);
 	blobmsg_add_u8(c->buf, "enabled", c->entry.enabled);
-	if (c->entry.use_procd)
+	if (!c->skip_running_check && c->entry.use_procd)
 		blobmsg_add_u8(c->buf, "running", c->entry.running);
 
 	blobmsg_close_table(c->buf, e);
@@ -114,6 +124,9 @@ static int rc_list_exec(struct rc_list_context *c, const char *action, uloop_pro
 	case -1:
 		return -errno;
 	case 0:
+		if (c->skip_running_check)
+			exit(-EFAULT);
+
 		if (!c->entry.use_procd)
 			exit(-EOPNOTSUPP);
 
@@ -197,7 +210,8 @@ static void rc_list_readdir(struct rc_list_context *c)
 		int count = 0;
 
 		beginning = true;
-		while ((c->entry.start < 0 || c->entry.stop < 0 || !c->entry.use_procd) &&
+		while ((c->entry.start < 0 || c->entry.stop < 0 ||
+		       (!c->skip_running_check && !c->entry.use_procd)) &&
 		       count <= 10 && fgets(line, sizeof(line), fp)) {
 			if (beginning) {
 				if (!strncmp(line, "START=", 6)) {
@@ -236,8 +250,11 @@ static int rc_list(struct ubus_context *ctx, struct ubus_object *obj,
 		   struct ubus_request_data *req, const char *method,
 		   struct blob_attr *msg)
 {
+	struct blob_attr *tb[__RC_LIST_MAX];
 	static struct blob_buf buf;
 	struct rc_list_context *c;
+
+	blobmsg_parse(rc_list_policy, __RC_LIST_MAX, tb, blobmsg_data(msg), blobmsg_data_len(msg));
 
 	blob_buf_init(&buf, 0);
 
@@ -252,6 +269,8 @@ static int rc_list(struct ubus_context *ctx, struct ubus_object *obj,
 		free(c);
 		return UBUS_STATUS_UNKNOWN_ERROR;
 	}
+	if (tb[RC_LIST_SKIP_RUNNING_CHECK])
+		c->skip_running_check = blobmsg_get_bool(tb[RC_LIST_SKIP_RUNNING_CHECK]);
 
 	ubus_defer_request(ctx, req, &c->req);
 
@@ -359,7 +378,7 @@ static int rc_init(struct ubus_context *ctx, struct ubus_object *obj,
 int rpc_rc_api_init(struct ubus_context *ctx)
 {
 	static const struct ubus_method rc_methods[] = {
-		UBUS_METHOD_NOARG("list", rc_list),
+		UBUS_METHOD("list", rc_list, rc_list_policy),
 		UBUS_METHOD("init", rc_init, rc_init_policy),
 	};
 
