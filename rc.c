@@ -21,11 +21,13 @@
 #define RC_LIST_EXEC_TIMEOUT_MS			3000
 
 enum {
+	RC_LIST_NAME,
 	RC_LIST_SKIP_RUNNING_CHECK,
 	__RC_LIST_MAX
 };
 
 static const struct blobmsg_policy rc_list_policy[] = {
+	[RC_LIST_NAME] = { "name", BLOBMSG_TYPE_STRING },
 	[RC_LIST_SKIP_RUNNING_CHECK] = { "skip_running_check", BLOBMSG_TYPE_BOOL },
 };
 
@@ -48,6 +50,7 @@ struct rc_list_context {
 	struct blob_buf *buf;
 	DIR *dir;
 	bool skip_running_check;
+	const char *req_name;
 
 	/* Info about currently processed init.d entry */
 	struct {
@@ -181,7 +184,12 @@ static void rc_list_readdir(struct rc_list_context *c)
 	FILE *fp;
 
 	e = readdir(c->dir);
-	if (!e) {
+	/* 
+	 * If scanning for a specific script and entry.d_name is set
+	 * we can assume we found a matching one in the previous
+	 * iteration since entry.d_name is set only if a match is found.
+	 */
+	if (!e || (c->req_name && c->entry.d_name)) {
 		closedir(c->dir);
 		ubus_send_reply(c->ctx, &c->req, c->buf->head);
 		ubus_complete_deferred_request(c->ctx, &c->req, UBUS_STATUS_OK);
@@ -189,6 +197,9 @@ static void rc_list_readdir(struct rc_list_context *c)
 	}
 
 	if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+		goto next;
+
+	if (c->req_name && strcmp(e->d_name, c->req_name))
 		goto next;
 
 	memset(&c->entry, 0, sizeof(c->entry));
@@ -271,6 +282,8 @@ static int rc_list(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 	if (tb[RC_LIST_SKIP_RUNNING_CHECK])
 		c->skip_running_check = blobmsg_get_bool(tb[RC_LIST_SKIP_RUNNING_CHECK]);
+	if (tb[RC_LIST_NAME])
+		c->req_name = blobmsg_get_string(tb[RC_LIST_NAME]);
 
 	ubus_defer_request(ctx, req, &c->req);
 
