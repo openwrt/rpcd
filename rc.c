@@ -187,17 +187,20 @@ static void rc_list_readdir(struct rc_list_context *c)
 	if (fp) {
 		struct stat s;
 		char path[PATH_MAX];
-		char line[32];
+		char line[255];
 		bool beginning;
+		int count = 0;
 
 		beginning = true;
-		while (c->entry.start < 0 && c->entry.stop < 0 && fgets(line, sizeof(line), fp)) {
+		while ((c->entry.start < 0 || c->entry.stop < 0) &&
+		       count <= 10 && fgets(line, sizeof(line), fp)) {
 			if (beginning) {
 				if (!strncmp(line, "START=", 6)) {
 					c->entry.start = strtoul(line + 6, NULL, 0);
 				} else if (!strncmp(line, "STOP=", 5)) {
 					c->entry.stop = strtoul(line + 5, NULL, 0);
 				}
+				count++;
 			}
 
 			beginning = !!strchr(line, '\n');
