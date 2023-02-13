@@ -10,6 +10,7 @@ OPTION(FILE_SUPPORT "File plugin support" ON)
 OPTION(IWINFO_SUPPORT "libiwinfo plugin support" ON)
 OPTION(RPCSYS_SUPPORT "rpc-sys plugin support" ON)
 OPTION(UCODE_SUPPORT "ucode plugin support" ON)
+OPTION(WIREGUARD_SUPPORT "wireguard plugin support" ON)
 
 SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
@@ -72,6 +73,13 @@ IF(UCODE_SUPPORT)
   ADD_LIBRARY(ucode_plugin MODULE ucode.c)
   TARGET_LINK_LIBRARIES(ucode_plugin ${ucode})
   SET_TARGET_PROPERTIES(ucode_plugin PROPERTIES OUTPUT_NAME ucode PREFIX "")
+ENDIF()
+
+IF(WIREGUARD_SUPPORT)
+  SET(PLUGINS ${PLUGINS} wireguard_plugin)
+  ADD_LIBRARY(wireguard_plugin MODULE thirdparty/wireguard.c wireguard.c)
+  TARGET_LINK_LIBRARIES(file_plugin ${ubox} ${ubus})
+  SET_TARGET_PROPERTIES(wireguard_plugin PROPERTIES OUTPUT_NAME wireguard PREFIX "")
 ENDIF()
 
 INSTALL(TARGETS rpcd ${PLUGINS}
