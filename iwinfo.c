@@ -535,7 +535,7 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 			e = blobmsg_open_table(&buf, "rx");
 			blobmsg_add_u64(&buf, "drop_misc", a->rx_drop_misc);
 			blobmsg_add_u32(&buf, "packets", a->rx_packets);
-			blobmsg_add_u32(&buf, "bytes", a->rx_bytes);
+			blobmsg_add_u64(&buf, "bytes", a->rx_bytes);
 			rpc_iwinfo_add_rateinfo(&a->rx_rate);
 			blobmsg_close_table(&buf, e);
 
@@ -543,7 +543,7 @@ rpc_iwinfo_assoclist(struct ubus_context *ctx, struct ubus_object *obj,
 			blobmsg_add_u32(&buf, "failed", a->tx_failed);
 			blobmsg_add_u32(&buf, "retries", a->tx_retries);
 			blobmsg_add_u32(&buf, "packets", a->tx_packets);
-			blobmsg_add_u32(&buf, "bytes", a->tx_bytes);
+			blobmsg_add_u64(&buf, "bytes", a->tx_bytes);
 			rpc_iwinfo_add_rateinfo(&a->tx_rate);
 			blobmsg_close_table(&buf, e);
 
