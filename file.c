@@ -809,6 +809,9 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 
 	struct rpc_file_exec_context *c;
 
+	if (sid && env)
+		return UBUS_STATUS_PERMISSION_DENIED;
+
 	cmd = rpc_file_exec_lookup(cmd);
 
 	if (!cmd)
@@ -824,7 +827,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 		if (arg == NULL || strlen(executable) >= sizeof(cmdstr))
 			return UBUS_STATUS_PERMISSION_DENIED;
 
-		arglen = 0;
+		arglen = 2;
 		p = cmdstr + sprintf(cmdstr, "%s", executable);
 
 		blobmsg_for_each_attr(cur, arg, rem)
@@ -834,7 +837,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 
 			if (arglen == 255 ||
 			    p + blobmsg_data_len(cur) >= cmdstr + sizeof(cmdstr))
-				break;
+				return UBUS_STATUS_PERMISSION_DENIED;
 
 			p += sprintf(p, " %s", blobmsg_get_string(cur));
 			arglen++;
