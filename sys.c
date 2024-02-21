@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdbool.h>
 #include <libubus.h>
 
 #include <rpcd/exec.h>
@@ -164,16 +165,31 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 }
 
+static bool
+is_field(const char *type, const char *line)
+{
+	return strncmp(line, type, strlen(type)) == 0;
+}
+
+static bool
+is_blank(const char *line)
+{
+	for (; *line; line++)
+		if (!isspace(*line))
+			return false;
+	return true;
+}
+
 static int
 rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
                 struct ubus_request_data *req, const char *method,
                 struct blob_attr *msg)
 {
 	struct blob_attr *tb[__RPC_PACKAGELIST_MAX];
-	int all = false;
+	bool all = false, installed = false, auto_installed = false;
 	struct blob_buf buf = { 0 };
-	char var[256], pkg[128] = { 0 }, ver[128] = { 0 };
-	char *tmp, *p1, *p2, *p3;
+	char line[256], tmp[128], pkg[128], ver[128];
+	char *pkg_abi;
 	void *tbl;
 
 	blobmsg_parse(rpc_packagelist_policy, __RPC_PACKAGELIST_MAX, tb,
@@ -190,68 +206,44 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	tbl = blobmsg_open_table(&buf, "packages");
 	pkg[0] = ver[0] = '\0';
 
-	while(fgets(var, sizeof(var), f)) {
-		p1 = strchr(var, ' ');
-		p2 = p3 = NULL;
-		if (!p1)
-			goto procstr;
-
-		*p1++ = '\0';
-		p2 = strchr(p1, ' ');
-		if (!p2) {
-			tmp = strchr(p1, '\n');
-			if (tmp)
-				*tmp = '\0';
-			goto procstr;
-		}
-
-		*p2++ = '\0';
-		p3 = strchr(p2, ' ');
-		if (!p3) {
-			tmp = strchr(p2, '\n');
-			if (tmp)
-				*tmp = '\0';
-			goto procstr;
-		}
-
-		*p3++ = '\0';
-		tmp = strchr(p3, '\n');
-		if (tmp)
-			*tmp = '\0';
-
-procstr:
-		if (!p1)
-			continue;
-
-		if (!strcmp(var, "Package:")) {
-			strncpy(pkg, p1, sizeof(pkg) - 1);
-			continue;
-		}
-
-		/* If there is ABIVersion, remove that suffix */
-		if (!strcmp(var, "ABIVersion:")) {
-			if (strlen(pkg) <= strlen(p1))
-				continue;
-			tmp = &pkg[strlen(pkg) - strlen(p1)];
-			if (strncmp(p1, tmp, strlen(p1)))
-				continue;
-
-			*tmp = '\0';
-			continue;
-		}
-
-		if (!strcmp(var, "Version:")) {
-			strncpy(ver, p1, sizeof(ver) - 1);
-			continue;
-		}
-
-		if (p2 && p3 &&
-		    !strcmp(var, "Status:") &&
-		    !strcmp(p1, "install") &&
-		    (all || strstr(p2, "user")) &&
-		    !strcmp(p3, "installed") && pkg[0] && ver[0]) {
-			blobmsg_add_string(&buf, pkg, ver);
-			pkg[0] = ver[0] = '\0';
+	while (fgets(line, sizeof(line), f)) {
+		switch (line[0]) {
+		case 'A':
+			if (is_field("ABIVersion", line)) {
+				/* if there is ABIVersion, remove that suffix */
+				if (sscanf(line, "ABIVersion: %127s", tmp) == 1
+					&& strlen(tmp) < strlen(pkg)) {
+					pkg_abi = pkg + (strlen(pkg) - strlen(tmp));
+					if (strncmp(pkg_abi, tmp, strlen(tmp)) == 0)
+						pkg_abi[0] = '\0';
+				}
+			} else if (is_field("Auto-Installed", line))
+				if (sscanf(line, "Auto-Installed: %63s", tmp) == 1)
+					auto_installed = (strcmp(tmp, "yes") == 0);
+			break;
+		case 'P':
+			if (is_field("Package", line))
+				if (sscanf(line, "Package: %127s", pkg) != 1)
+					pkg[0] = '\0';
+			break;
+		case 'V':
+			if (is_field("Version", line))
+				if (sscanf(line, "Version: %127s", ver) != 1)
+					ver[0] = '\0';
+			break;
+		case 'S':
+			if (is_field("Status", line))
+				if (sscanf(line, "Status: install %63s installed", tmp) == 1)
+					installed = true;
+			break;
+		default:
+			if (is_blank(line)) {
+				if (installed && (all || !auto_installed) && pkg[0] && ver[0])
+					blobmsg_add_string(&buf, pkg, ver);
+				pkg[0] = ver[0] = '\0';
+				installed = auto_installed = false;
+			}
+			break;
 		}
 	}
 
