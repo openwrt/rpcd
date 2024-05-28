@@ -862,6 +862,9 @@ rpc_login_test_login(struct uci_context *uci,
 		if (uci_lookup_ptr(uci, &ptr, NULL, true))
 			continue;
 
+		if (!ptr.o)
+			continue;
+
 		if (ptr.o->type != UCI_TYPE_STRING)
 			continue;
 
@@ -878,6 +881,9 @@ rpc_login_test_login(struct uci_context *uci,
 		ptr.o = NULL;
 
 		if (uci_lookup_ptr(uci, &ptr, NULL, true))
+			continue;
+
+		if (!ptr.o)
 			continue;
 
 		if (ptr.o->type != UCI_TYPE_STRING)
