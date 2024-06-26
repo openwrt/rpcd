@@ -284,8 +284,20 @@ static void rpc_iwinfo_call_hw_ht_mode(int hwmodelist)
 			hwmode_str = "ac";
 		else if (iwinfo_htmode_is_he(htmode))
 			hwmode_str = "ax";
-		else
-			hwmode_str = "a/g";
+		else if (iwinfo_htmode_is_eht(htmode))
+			hwmode_str = "be";
+		else {
+			if (hwmodelist & IWINFO_80211_N)
+				hwmode_str = "n";
+			else if (hwmodelist & IWINFO_80211_G)
+				hwmode_str = "g";
+			else if (hwmodelist & IWINFO_80211_B)
+				hwmode_str = "b";
+			else if (hwmodelist & IWINFO_80211_A)
+				hwmode_str = "a";
+			else
+				hwmode_str = "unknown";
+		}
 	} else
 		htmode_str = hwmode_str = "unknown";
 
@@ -446,7 +458,8 @@ rpc_iwinfo_add_rateinfo(struct iwinfo_rate_entry *r)
 	blobmsg_add_u8(&buf, "ht", r->is_ht);
 	blobmsg_add_u8(&buf, "vht", r->is_vht);
 	blobmsg_add_u8(&buf, "he", r->is_he);
-	blobmsg_add_u32(&buf, "mhz", r->mhz);
+	blobmsg_add_u8(&buf, "eht", r->is_eht);
+	blobmsg_add_u32(&buf, "mhz", r->mhz_hi * 256 + r->mhz);
 	blobmsg_add_u32(&buf, "rate", r->rate);
 
 	if (r->is_ht) {
@@ -464,6 +477,11 @@ rpc_iwinfo_add_rateinfo(struct iwinfo_rate_entry *r)
 		blobmsg_add_u32(&buf, "nss", r->nss);
 		blobmsg_add_u32(&buf, "he_gi", r->he_gi);
 		blobmsg_add_u32(&buf, "he_dcm", r->he_dcm);
+	}
+	else if (r->is_eht) {
+		blobmsg_add_u32(&buf, "mcs", r->mcs);
+		blobmsg_add_u32(&buf, "nss", r->nss);
+		blobmsg_add_u32(&buf, "eht_gi", r->eht_gi);
 	}
 }
 
