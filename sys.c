@@ -233,8 +233,7 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 			break;
 		case 'S':
 			if (is_field("Status", line))
-				if (sscanf(line, "Status: install %63s installed", tmp) == 1)
-					installed = true;
+				installed = !!strstr(line, " installed");
 			break;
 		default:
 			if (is_blank(line)) {
