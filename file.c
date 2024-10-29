@@ -246,7 +246,7 @@ next:
 static struct blob_attr **
 __rpc_check_path(const struct blobmsg_policy *policy, size_t policy_len,
                  int policy_path_idx, int policy_sid_idx, const char *perm,
-                 struct blob_attr *msg, char **path, struct stat *s)
+                 struct blob_attr *msg, char **path, struct stat *s, bool use_lstat)
 {
 	static struct blob_attr *tb[__RPC_F_RW_MAX]; /* largest _MAX constant */
 
@@ -272,18 +272,27 @@ __rpc_check_path(const struct blobmsg_policy *policy, size_t policy_len,
 		return NULL;
 	}
 
-	if (s != NULL && stat(*path, s) != 0)
+	if (s != NULL && (use_lstat ? lstat(*path, s) : stat(*path, s)) != 0)
 		return NULL;
 
 	return tb;
 }
 
+// use_lstat defaults to false
 #define rpc_check_path(msg, policy_selector, perm, path, s) \
 	__rpc_check_path(rpc_file_ ## policy_selector ## _policy, \
 		ARRAY_SIZE(rpc_file_ ## policy_selector ## _policy), \
 		RPC_F_ ## policy_selector ## _PATH, \
 		RPC_F_ ## policy_selector ## _SESSION, \
-		perm, msg, path, s)
+		perm, msg, path, s, false)
+
+// use_lstat control
+#define rpc_check_path_with_lstat(msg, policy_selector, perm, path, s, use_lstat) \
+	__rpc_check_path(rpc_file_ ## policy_selector ## _policy, \
+		ARRAY_SIZE(rpc_file_ ## policy_selector ## _policy), \
+		RPC_F_ ## policy_selector ## _PATH, \
+		RPC_F_ ## policy_selector ## _SESSION, \
+		perm, msg, path, s, use_lstat)
 
 static int
 rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
@@ -543,6 +552,28 @@ rpc_file_stat(struct ubus_context *ctx, struct ubus_object *obj,
 	struct stat s;
 
 	if (!rpc_check_path(msg, R, "list", &path, &s))
+		return rpc_errno_status();
+
+	blob_buf_init(&buf, 0);
+
+	blobmsg_add_string(&buf, "path", path);
+	_rpc_file_add_stat(&s);
+
+	ubus_send_reply(ctx, req, buf.head);
+	blob_buf_free(&buf);
+
+	return 0;
+}
+
+static int
+rpc_file_lstat(struct ubus_context *ctx, struct ubus_object *obj,
+			   struct ubus_request_data *req, const char *method,
+			   struct blob_attr *msg)
+{
+	char *path;
+	struct stat s;
+
+	if (!rpc_check_path_with_lstat(msg, R, "list", &path, &s, true))
 		return rpc_errno_status();
 
 	blob_buf_init(&buf, 0);
@@ -992,6 +1023,7 @@ rpc_file_api_init(const struct rpc_daemon_ops *o, struct ubus_context *ctx)
 		UBUS_METHOD("read",    rpc_file_read,   rpc_file_RB_policy),
 		UBUS_METHOD("write",   rpc_file_write,  rpc_file_RW_policy),
 		UBUS_METHOD("list",    rpc_file_list,   rpc_file_R_policy),
+		UBUS_METHOD("lstat",   rpc_file_lstat,  rpc_file_R_policy),
 		UBUS_METHOD("stat",    rpc_file_stat,   rpc_file_R_policy),
 		UBUS_METHOD("md5",     rpc_file_md5,    rpc_file_R_policy),
 		UBUS_METHOD("remove",  rpc_file_remove, rpc_file_R_policy),
