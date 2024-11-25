@@ -18,6 +18,7 @@
 
 #include <stdbool.h>
 #include <libubus.h>
+#include <sys/mman.h>
 
 #include <rpcd/exec.h>
 #include <rpcd/plugin.h>
@@ -166,9 +167,25 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 }
 
 static bool
-is_field(const char *type, const char *line)
+is_all_or_world(const char *pkg, const char **world)
 {
-	return strncmp(line, type, strlen(type)) == 0;
+	/* compares null-terminated pkg with non-null-terminated world[i] */
+	/* e.g., "my_pkg\0" == "my_pkg==1.2.3\n" => true */
+
+	if (!world) return true;  /* handles 'all' case */
+
+	const char *terminators = "\n@~<>="; /* man 5 apk-world */
+
+	size_t i, c;
+	const char *item;
+	for (i = 0; *world[i]; i++) {
+		item = world[i];
+		for (c = 0; pkg[c] == item[c]; c++);
+		if (pkg[c] == '\0' && strchr(terminators, item[c]))
+			return true;
+	}
+
+	return false;
 }
 
 static bool
@@ -186,11 +203,24 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
                 struct blob_attr *msg)
 {
 	struct blob_attr *tb[__RPC_PACKAGELIST_MAX];
-	bool all = false, installed = false, auto_installed = false;
+	bool all = false;
 	struct blob_buf buf = { 0 };
-	char line[256], tmp[128], pkg[128], ver[128];
-	char *pkg_abi;
+	char line[256], pkg[128], ver[128];
 	void *tbl;
+	struct stat statbuf;
+	const char **world = NULL;
+	char *world_mmap = NULL;
+	size_t world_mmap_size = 0;
+
+	/*
+	 * Status file fields, /usr/lib/opkg/status vs /lib/apk/db/installed
+	 *                        opkg              apk
+	 * PACKAGE_ABIVERSION     "ABIVersion"      no equivalent - see BUG, below
+	 * PACKAGE_AUTOINSTALLED  "Auto-Installed"  package listed in 'world', not a db field
+	 * PACKAGE_NAME           "Package"         "P"
+	 * PACKAGE_STATUS         "Status"          package listed in db, not a status value
+	 * PACKAGE_VERSION        "Version"         "V"
+	*/
 
 	blobmsg_parse(rpc_packagelist_policy, __RPC_PACKAGELIST_MAX, tb,
 	              blob_data(msg), blob_len(msg));
@@ -198,9 +228,65 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	if (tb[RPC_PACKAGELIST_ALL] && blobmsg_get_bool(tb[RPC_PACKAGELIST_ALL]))
 		all = true;
 
-	FILE *f = fopen("/usr/lib/opkg/status", "r");
+	FILE *f = fopen("/lib/apk/db/installed", "r");
 	if (!f)
 		return UBUS_STATUS_NOT_FOUND;
+
+	if (!all) {
+		/* We return only those items appearing in 'world' file. */
+		int world_fd = open("/etc/apk/world", O_RDONLY);
+		if (world_fd == -1)
+			return rpc_errno_status();
+
+		if (fstat(world_fd, &statbuf) == -1) {
+			close(world_fd);
+			return rpc_errno_status();
+		}
+
+		world_mmap_size = statbuf.st_size + 1;
+		if (world_mmap_size == 1) {
+			/* 'world' file is malformed: empty */
+			close(world_fd);
+			return UBUS_STATUS_UNKNOWN_ERROR;
+		}
+
+		world_mmap = (char *)mmap(NULL, world_mmap_size, PROT_READ, MAP_PRIVATE, world_fd, 0);
+		close(world_fd);
+		if (world_mmap == MAP_FAILED) {
+			return rpc_errno_status();
+		}
+		
+		if (world_mmap[world_mmap_size-2] != '\n') {
+			/* 'world' file is malformed: missing final newline */
+			munmap(world_mmap, world_mmap_size);
+			return UBUS_STATUS_UNKNOWN_ERROR;
+		}
+
+		/* resulting 'world' pointer map looks like this:
+		 * nstrs = 2 == count of newlines in mmap
+		 * mmap  = "pkg1\npkg2=1.2\n\0"
+		 *          |     |         |
+		 * world[0]-+     |         |
+		 * world[1]-------+         |
+		 * world[2]-----------------+
+		 */
+
+		size_t istr, nstrs;
+		char *s;
+		for (nstrs = 0, s = world_mmap; s[nstrs]; s[nstrs] == '\n' ? nstrs++ : *s++);
+
+		if (nstrs) {
+			/* extra one in world for NULL sentinel */
+			world = (const char **)calloc(nstrs+1, sizeof(char *));
+			world[0] = world_mmap;
+			for (istr = 1, s = world_mmap; *s; s++) {
+				if (*s == '\n') {
+					world[istr] = s + 1;
+					istr++;
+				}
+			}
+		}
+	}
 
 	blob_buf_init(&buf, 0);
 	tbl = blobmsg_open_table(&buf, "packages");
@@ -208,44 +294,35 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 
 	while (fgets(line, sizeof(line), f)) {
 		switch (line[0]) {
-		case 'A':
-			if (is_field("ABIVersion", line)) {
-				/* if there is ABIVersion, remove that suffix */
-				if (sscanf(line, "ABIVersion: %127s", tmp) == 1
-					&& strlen(tmp) < strlen(pkg)) {
-					pkg_abi = pkg + (strlen(pkg) - strlen(tmp));
-					if (strncmp(pkg_abi, tmp, strlen(tmp)) == 0)
-						pkg_abi[0] = '\0';
-				}
-			} else if (is_field("Auto-Installed", line))
-				if (sscanf(line, "Auto-Installed: %63s", tmp) == 1)
-					auto_installed = (strcmp(tmp, "yes") == 0);
-			break;
 		case 'P':
-			if (is_field("Package", line))
-				if (sscanf(line, "Package: %127s", pkg) != 1)
-					pkg[0] = '\0';
+			if (sscanf(line, "P: %127s", pkg) != 1)
+				pkg[0] = '\0';
 			break;
 		case 'V':
-			if (is_field("Version", line))
-				if (sscanf(line, "Version: %127s", ver) != 1)
-					ver[0] = '\0';
-			break;
-		case 'S':
-			if (is_field("Status", line))
-				if (sscanf(line, "Status: install %63s installed", tmp) == 1)
-					installed = true;
+			if (sscanf(line, "V: %127s", ver) != 1)
+				ver[0] = '\0';
 			break;
 		default:
 			if (is_blank(line)) {
-				if (installed && (all || !auto_installed) && pkg[0] && ver[0])
+				if (pkg[0] && ver[0] && is_all_or_world(pkg, world)) {
+					/* BUG: There's no ABI version info in any of
+					 * the apk files, so some of the returned file
+					 * names contain ABI-versioning.
+					 *
+					 * If you had that information, you'd apply it here.
+					 */
 					blobmsg_add_string(&buf, pkg, ver);
+				}
 				pkg[0] = ver[0] = '\0';
-				installed = auto_installed = false;
 			}
 			break;
 		}
 	}
+
+	if (world)
+		free(world);
+	if (world_mmap)
+		munmap(world_mmap, world_mmap_size);
 
 	blobmsg_close_table(&buf, tbl);
 	ubus_send_reply(ctx, req, buf.head);
