@@ -437,6 +437,22 @@ rpc_iwinfo_scan(struct ubus_context *ctx, struct ubus_object *obj,
 				blobmsg_close_table(&buf, t);
 			}
 
+			if (e->he_chan_info.center_chan_1) {
+				t = blobmsg_open_table(&buf, "he_operation");
+				blobmsg_add_u32(&buf, "channel_width", eht_chan_width[e->he_chan_info.chan_width]);
+				blobmsg_add_u32(&buf, "center_freq_1", e->he_chan_info.center_chan_1);
+				blobmsg_add_u32(&buf, "center_freq_2", e->he_chan_info.center_chan_2);
+				blobmsg_close_table(&buf, t);
+			}
+
+			if (e->eht_chan_info.center_chan_1) {
+				t = blobmsg_open_table(&buf, "eht_operation");
+				blobmsg_add_u32(&buf, "channel_width", eht_chan_width[e->eht_chan_info.chan_width]);
+				blobmsg_add_u32(&buf, "center_freq_1", e->eht_chan_info.center_chan_1);
+				blobmsg_add_u32(&buf, "center_freq_2", e->eht_chan_info.center_chan_2);
+				blobmsg_close_table(&buf, t);
+			}
+
 			rpc_iwinfo_add_encryption("encryption", &e->crypto);
 
 			blobmsg_close_table(&buf, d);
