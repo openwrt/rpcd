@@ -205,17 +205,18 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__RPC_PACKAGELIST_MAX];
 	bool all = false;
 	struct blob_buf buf = { 0 };
-	char line[256], pkg[128], ver[128];
+	char line[256], abi[128], pkg[128], ver[128];
 	void *tbl;
 	struct stat statbuf;
 	const char **world = NULL;
 	char *world_mmap = NULL;
 	size_t world_mmap_size = 0;
+	char *token = NULL;
 
 	/*
 	 * Status file fields, /usr/lib/opkg/status vs /lib/apk/db/installed
 	 *                        opkg              apk
-	 * PACKAGE_ABIVERSION     "ABIVersion"      no equivalent - see BUG, below
+	 * PACKAGE_ABIVERSION     "ABIVersion"      "g:openwrt:abiversion="
 	 * PACKAGE_AUTOINSTALLED  "Auto-Installed"  package listed in 'world', not a db field
 	 * PACKAGE_NAME           "Package"         "P"
 	 * PACKAGE_STATUS         "Status"          package listed in db, not a status value
@@ -290,7 +291,7 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 
 	blob_buf_init(&buf, 0);
 	tbl = blobmsg_open_table(&buf, "packages");
-	pkg[0] = ver[0] = '\0';
+	abi[0] = pkg[0] = ver[0] = '\0';
 
 	while (fgets(line, sizeof(line), f)) {
 		switch (line[0]) {
@@ -302,18 +303,27 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 			if (sscanf(line, "V: %127s", ver) != 1)
 				ver[0] = '\0';
 			break;
+		case 'g':
+			/* this is a custom tag, defined in include/package-pack.mk */
+			token = strtok(line+2, " =\n");
+			while (token) {
+				if (strcmp(token, "openwrt:abiversion") == 0) {
+					token = strtok(NULL, " =\n");
+					if (token)
+						strlcpy(abi, token, sizeof(abi));
+					break;
+				}
+				token = strtok(NULL, " =\n");
+			}
+			break;
 		default:
 			if (is_blank(line)) {
 				if (pkg[0] && ver[0] && is_all_or_world(pkg, world)) {
-					/* BUG: There's no ABI version info in any of
-					 * the apk files, so some of the returned file
-					 * names contain ABI-versioning.
-					 *
-					 * If you had that information, you'd apply it here.
-					 */
+					if (abi[0])
+						pkg[strlen(pkg)-strlen(abi)] = '\0';
 					blobmsg_add_string(&buf, pkg, ver);
 				}
-				pkg[0] = ver[0] = '\0';
+				abi[0] = pkg[0] = ver[0] = '\0';
 			}
 			break;
 		}
