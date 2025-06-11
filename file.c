@@ -470,8 +470,8 @@ rpc_file_md5(struct ubus_context *ctx, struct ubus_object *obj,
 	return UBUS_STATUS_OK;
 }
 
-static void
-_rpc_file_add_stat(struct stat *s)
+static int
+_get_stat_type(struct stat *s)
 {
 	int type;
 
@@ -483,8 +483,13 @@ _rpc_file_add_stat(struct stat *s)
 	            S_ISLNK(s->st_mode) ? DT_LNK :
 	             S_ISSOCK(s->st_mode) ? DT_SOCK :
 	              DT_UNKNOWN;
+	return type;
+}
 
-	blobmsg_add_string(&buf, "type", d_types[type]);
+static void
+_rpc_file_add_stat(struct stat *s)
+{
+	blobmsg_add_string(&buf, "type", d_types[_get_stat_type(s)]);
 	blobmsg_add_u32(&buf, "size",  s->st_size);
 	blobmsg_add_u32(&buf, "mode",  s->st_mode);
 	blobmsg_add_u32(&buf, "atime", s->st_atime);
@@ -523,11 +528,22 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 		if (asprintf(&entrypath, "%s/%s", path, e->d_name) < 0)
 			continue;
 
-		if (!stat(entrypath, &s))
+		// Use lstat to detect symlinks
+		if (!lstat(entrypath, &s))
 		{
 			d = blobmsg_open_table(&buf, NULL);
 			blobmsg_add_string(&buf, "name", e->d_name);
 			_rpc_file_add_stat(&s);
+
+			// add target type only for symlinks
+			if (S_ISLNK(s.st_mode)) {
+				struct stat target;
+				if (!stat(entrypath, &target)) {
+					blobmsg_add_string(&buf, "target_type", d_types[_get_stat_type(&target)]);
+				} else {
+					blobmsg_add_string(&buf, "target_type", "broken");
+				}
+			}
 			blobmsg_close_table(&buf, d);
 		}
 
