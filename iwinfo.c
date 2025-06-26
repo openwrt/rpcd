@@ -382,6 +382,7 @@ rpc_iwinfo_scan(struct ubus_context *ctx, struct ubus_object *obj,
 	void *c, *d, *t;
 	char mac[18];
 	char res[IWINFO_BUFSIZE];
+        memset(res, 0, sizeof(res));
 	struct iwinfo_scanlist_entry *e;
 
 	rv = rpc_iwinfo_open(msg);
