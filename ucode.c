@@ -449,7 +449,7 @@ rpc_ucode_script_call(struct ubus_context *ctx, struct ubus_object *obj,
 		res = uc_vm_stack_pop(&script->vm);
 
 		/* The handler function invoked a nested aync ubus request and returned it */
-		if (ucv_resource_dataptr(res, "ubus.deferred")) {
+		if (ucv_resource_data(res, "ubus.deferred")) {
 			/* Install guard timer in case the reply callback is never called */
 			callctx->timeout.cb = rpc_ucode_request_timeout;
 			uloop_timeout_set(&callctx->timeout, request_timeout);
