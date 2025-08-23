@@ -188,7 +188,7 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__RPC_PACKAGELIST_MAX];
 	bool all = false, installed = false, auto_installed = false;
 	struct blob_buf buf = { 0 };
-	char line[256], tmp[128], pkg[128], ver[128];
+	char line[512], tmp[128], pkg[128], ver[128];
 	char *pkg_abi;
 	void *tbl;
 
