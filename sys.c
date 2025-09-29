@@ -318,10 +318,16 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 			break;
 		default:
 			if (is_blank(line)) {
-				if (pkg[0] && ver[0] && is_all_or_world(pkg, world)) {
-					if (abi[0])
+				if (pkg[0] && ver[0]) {
+					/* Need to check both ABI-versioned and non-versioned pkg */
+					bool keep = is_all_or_world(pkg, world);
+					if (abi[0]) {
 						pkg[strlen(pkg)-strlen(abi)] = '\0';
-					blobmsg_add_string(&buf, pkg, ver);
+						if (!keep)
+							keep = is_all_or_world(pkg, world);
+					}
+					if (keep)
+						blobmsg_add_string(&buf, pkg, ver);
 				}
 				abi[0] = pkg[0] = ver[0] = '\0';
 			}
