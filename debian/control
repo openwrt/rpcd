@@ -1,0 +1,53 @@
+Source: rpcd
+Section: admin
+Priority: optional
+Maintainer: Russ Dill <russ.dill@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               libubus-dev,
+               libubox-dev,
+               libjson-c-dev,
+               libiwinfo-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/openwrt/rpcd
+Rules-Requires-Root: no
+
+Package: rpcd
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ubus, adduser
+Recommends: rpcd-mod-file, rpcd-mod-rpcsys
+Description: ubus JSON-RPC daemon
+ rpcd is a lightweight JSON-RPC server for ubus. It loads plugins from
+ /usr/lib/rpcd and enforces ACLs under /etc/rpcd/acl.d.
+
+Package: rpcd-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends: rpcd (= ${binary:Version}), ${misc:Depends}
+Description: Development headers for rpcd plugins
+ Provides the C header (plugin.h) needed to build rpcd plugins.
+
+Package: rpcd-mod-file
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, rpcd (>= ${binary:Version})
+Description: rpcd plugin: file
+ Exposes basic file operations via rpcd.
+
+Package: rpcd-mod-iwinfo
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, rpcd (>= ${binary:Version}), libiwinfo0
+Description: rpcd plugin: iwinfo
+ Exposes iwinfo radio/assoc data via rpcd.
+
+Package: rpcd-mod-rpcsys
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, rpcd (>= ${binary:Version})
+Description: rpcd plugin: rpc-sys
+ Exposes basic system info/commands via rpcd.
+
+#Package: rpcd-mod-ucode
+#Architecture: any
+#Depends: ${shlibs:Depends}, ${misc:Depends}, rpcd (>= ${binary:Version}), libucode0
+#Description: rpcd plugin: ucode
+# Allows rpcd procedures implemented in ucode.

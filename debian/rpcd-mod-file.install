@@ -1,0 +1,2 @@
+usr/lib/rpcd/file.so
+debian/acl/file.json  etc/rpcd/acl.d/

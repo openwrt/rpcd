@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+case "$1" in
+  remove)
+    ;;
+  purge)
+    deluser --system rpcd >/dev/null 2>&1 || true
+    ;;
+esac
+exit 0
