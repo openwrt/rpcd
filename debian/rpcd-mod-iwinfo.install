@@ -1,0 +1,2 @@
+usr/lib/rpcd/iwinfo.so
+debian/acl/iwinfo.json  etc/rpcd/acl.d/
