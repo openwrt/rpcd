@@ -537,12 +537,26 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 
 			// add target type only for symlinks
 			if (S_ISLNK(s.st_mode)) {
+				char tbuf[PATH_MAX + 1];
+				ssize_t tlen;
+				void *t;
+
+				// open nested table "target" for symbolic link
+				t = blobmsg_open_table(&buf, "target");
+
+				tlen = readlink(entrypath, tbuf, sizeof(tbuf) - 1);
+				if (tlen >= 0) {
+					tbuf[tlen] = '\0';
+				}
+				blobmsg_add_string(&buf, "name", tbuf);
+
 				struct stat target;
 				if (!stat(entrypath, &target)) {
-					blobmsg_add_string(&buf, "target_type", d_types[_get_stat_type(&target)]);
+					_rpc_file_add_stat(&target);
 				} else {
-					blobmsg_add_string(&buf, "target_type", "broken");
+					blobmsg_add_string(&buf, "type", "broken");
 				}
+				blobmsg_close_table(&buf, t);
 			}
 			blobmsg_close_table(&buf, d);
 		}
