@@ -490,7 +490,7 @@ static void
 _rpc_file_add_stat(struct stat *s)
 {
 	blobmsg_add_string(&buf, "type", d_types[_get_stat_type(s)]);
-	blobmsg_add_u32(&buf, "size",  s->st_size);
+	blobmsg_add_u64(&buf, "size",  s->st_size);
 	blobmsg_add_u32(&buf, "mode",  s->st_mode);
 	blobmsg_add_u32(&buf, "atime", s->st_atime);
 	blobmsg_add_u32(&buf, "mtime", s->st_mtime);
