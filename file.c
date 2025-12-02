@@ -19,6 +19,8 @@
 
 #define _GNU_SOURCE
 
+#include <pwd.h>
+#include <grp.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
@@ -470,6 +472,30 @@ rpc_file_md5(struct ubus_context *ctx, struct ubus_object *obj,
 	return UBUS_STATUS_OK;
 }
 
+/* Add a string key only if value is non-NULL */
+static inline void
+blobmsg_add_string_safe(struct blob_buf *buf, const char *key, const char *val)
+{
+	if (val)
+		blobmsg_add_string(buf, key, val);
+}
+
+/* Look up username from UID */
+static const char *
+look_up_username(uid_t uid)
+{
+	struct passwd *pw = getpwuid(uid);
+	return pw ? pw->pw_name : NULL;
+}
+
+/* Look up group name from GID */
+static const char *
+look_up_groupname(gid_t gid)
+{
+	struct group *gr = getgrgid(gid);
+	return gr ? gr->gr_name : NULL;
+}
+
 static int
 _get_stat_type(struct stat *s)
 {
@@ -489,6 +515,9 @@ _get_stat_type(struct stat *s)
 static void
 _rpc_file_add_stat(struct stat *s)
 {
+	const char *user = look_up_username(s->st_uid);
+	const char *group = look_up_groupname(s->st_gid);
+
 	blobmsg_add_string(&buf, "type", d_types[_get_stat_type(s)]);
 	blobmsg_add_u64(&buf, "size",  s->st_size);
 	blobmsg_add_u32(&buf, "mode",  s->st_mode);
@@ -498,6 +527,8 @@ _rpc_file_add_stat(struct stat *s)
 	blobmsg_add_u32(&buf, "inode", s->st_ino);
 	blobmsg_add_u32(&buf, "uid",   s->st_uid);
 	blobmsg_add_u32(&buf, "gid",   s->st_gid);
+	blobmsg_add_string_safe(&buf, "user", user);
+	blobmsg_add_string_safe(&buf, "group", group);
 }
 
 static int
