@@ -1,0 +1,18 @@
+{
+  "iwinfo": {
+    "description": "Read-only wireless info via iwinfo plugin",
+    "read": {
+      "ubus": {
+        "iwinfo": [
+          "devices",
+          "info",
+          "assoclist",
+          "freqlist",
+          "txpowerlist",
+          "countrylist",
+          "scan"
+        ]
+      }
+    }
+  }
+}
