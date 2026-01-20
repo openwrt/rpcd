@@ -205,7 +205,7 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__RPC_PACKAGELIST_MAX];
 	bool all = false;
 	struct blob_buf buf = { 0 };
-	char line[256], abi[128], pkg[128], ver[128];
+	char line[256], abi[128], pkg[128], ver[128], provides[512];
 	void *tbl;
 	struct stat statbuf;
 	const char **world = NULL;
@@ -219,6 +219,7 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	 * PACKAGE_ABIVERSION     "ABIVersion"      "g:openwrt:abiversion="
 	 * PACKAGE_AUTOINSTALLED  "Auto-Installed"  package listed in 'world', not a db field
 	 * PACKAGE_NAME           "Package"         "P"
+	 * PACKAGE_PROVIDES       N/A               "p" (space-separated list of provided packages)
 	 * PACKAGE_STATUS         "Status"          package listed in db, not a status value
 	 * PACKAGE_VERSION        "Version"         "V"
 	*/
@@ -291,7 +292,7 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 
 	blob_buf_init(&buf, 0);
 	tbl = blobmsg_open_table(&buf, "packages");
-	abi[0] = pkg[0] = ver[0] = '\0';
+	abi[0] = pkg[0] = ver[0] = provides[0] = '\0';
 
 	while (fgets(line, sizeof(line), f)) {
 		switch (line[0]) {
@@ -302,6 +303,16 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 		case 'V':
 			if (sscanf(line, "V: %127s", ver) != 1)
 				ver[0] = '\0';
+			break;
+		case 'p':
+			/* Parse the provides field (p: pkg1=ver pkg2=ver ...) */
+			if (line[1] == ':' && line[2] == ' ') {
+				strlcpy(provides, line + 3, sizeof(provides));
+				/* Remove trailing newline */
+				size_t len = strlen(provides);
+				if (len > 0 && provides[len-1] == '\n')
+					provides[len-1] = '\0';
+			}
 			break;
 		case 'g':
 			/* this is a custom tag, defined in include/package-pack.mk */
@@ -326,10 +337,30 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 						if (!keep)
 							keep = is_all_or_world(pkg, world);
 					}
+					/* Also check if any of the PROVIDES names are in world */
+					if (!keep && provides[0]) {
+						char provides_copy[512];
+						strlcpy(provides_copy, provides, sizeof(provides_copy));
+						char *prov_token = strtok(provides_copy, " ");
+						while (prov_token && !keep) {
+							/* Extract just the package name (before any =, <, >, ~) */
+							char prov_name[128];
+							size_t i;
+							for (i = 0; i < sizeof(prov_name) - 1 && prov_token[i] &&
+							     prov_token[i] != '=' && prov_token[i] != '<' &&
+							     prov_token[i] != '>' && prov_token[i] != '~'; i++) {
+								prov_name[i] = prov_token[i];
+							}
+							prov_name[i] = '\0';
+							if (prov_name[0])
+								keep = is_all_or_world(prov_name, world);
+							prov_token = strtok(NULL, " ");
+						}
+					}
 					if (keep)
 						blobmsg_add_string(&buf, pkg, ver);
 				}
-				abi[0] = pkg[0] = ver[0] = '\0';
+				abi[0] = pkg[0] = ver[0] = provides[0] = '\0';
 			}
 			break;
 		}
