@@ -70,10 +70,8 @@ struct rpc_file_exec_context {
 	struct uloop_process process;
 	struct ustream_fd opipe;
 	struct ustream_fd epipe;
-	struct uloop_timeout deferred_reply;
 	int stat;
 	int deferred_status;
-	bool deferred_reply_pending;
 };
 
 
@@ -791,9 +789,6 @@ rpc_file_exec_reply(struct rpc_file_exec_context *c, int rv)
 {
 	uloop_timeout_cancel(&c->timeout);
 	uloop_process_delete(&c->process);
-	uloop_timeout_cancel(&c->deferred_reply);
-
-	c->deferred_reply_pending = false;
 
 	if (rv == UBUS_STATUS_OK)
 	{
@@ -820,24 +815,20 @@ rpc_file_exec_reply(struct rpc_file_exec_context *c, int rv)
 }
 
 static void
-rpc_file_exec_deferred_reply_cb(struct uloop_timeout *t)
+rpc_file_exec_reply_cb(struct uloop_timeout *t)
 {
 	struct rpc_file_exec_context *c =
-		container_of(t, struct rpc_file_exec_context, deferred_reply);
+		container_of(t, struct rpc_file_exec_context, timeout);
 
-	c->deferred_reply_pending = false;
 	rpc_file_exec_reply(c, c->deferred_status);
 }
 
 static void
 rpc_file_exec_schedule_reply(struct rpc_file_exec_context *c, int rv)
 {
-	if (c->deferred_reply_pending)
-		return;
-
 	c->deferred_status = rv;
-	c->deferred_reply_pending = true;
-	uloop_timeout_set(&c->deferred_reply, 0);
+	c->timeout.cb = rpc_file_exec_reply_cb;
+	uloop_timeout_set(&c->timeout, 0);
 }
 
 static void
@@ -1060,8 +1051,6 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 		c->process.pid = pid;
 		c->process.cb = rpc_file_exec_process_cb;
 		uloop_process_add(&c->process);
-
-		c->deferred_reply.cb = rpc_file_exec_deferred_reply_cb;
 
 		c->timeout.cb = rpc_file_exec_timeout_cb;
 		uloop_timeout_set(&c->timeout, *ops->exec_timeout);

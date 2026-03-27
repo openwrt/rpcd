@@ -61,7 +61,6 @@ struct rpc_exec_context {
 	struct ubus_request_data request;
 	struct uloop_timeout timeout;
 	struct uloop_process process;
-	struct uloop_timeout deferred_reply;
 	struct ustream_fd ipipe;
 	struct ustream_fd opipe;
 	struct ustream_fd epipe;
@@ -71,7 +70,6 @@ struct rpc_exec_context {
 	char *err;
 	int stat;
 	int deferred_status;
-	bool deferred_reply_pending;
 	void *priv;
 	bool blob_array;
 	void *blob_cookie;
