@@ -1,0 +1,14 @@
+obj-*
+debian/.debhelper/
+debian/*.debhelper
+debian/debhelper-build-stamp
+debian/*.debhelper.log
+debian/*.substvars
+debian/rpcd-dev/
+debian/rpcd-mod-file/
+debian/rpcd-mod-iwinfo/
+debian/rpcd-mod-rpcsys/
+debian/rpcd/
+debian/files
+debian/changelog
+debian/tmp/
