@@ -79,9 +79,11 @@ int main(int argc, char **argv)
 			ubus_socket = optarg;
 			break;
 
-		case 't':
-			rpc_exec_timeout = 1000 * strtol(optarg, NULL, 0);
+		case 't': {
+			long t = strtol(optarg, NULL, 0);
+			rpc_exec_timeout = (t > 0 && t <= 600) ? (int)(t * 1000) : -1;
 			break;
+		}
 
 		default:
 			break;
