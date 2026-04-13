@@ -23,6 +23,7 @@ static struct blob_buf buf;
 struct rpc_plugin_lookup_context {
 	uint32_t id;
 	char *name;
+	size_t namelen;
 	bool found;
 };
 
@@ -35,15 +36,15 @@ rpc_plugin_lookup_plugin_cb(struct ubus_context *ctx,
 	if (c->id == obj->id)
 	{
 		c->found = true;
-		sprintf(c->name, "%s", obj->path);
+		snprintf(c->name, c->namelen, "%s", obj->path);
 	}
 }
 
 static bool
 rpc_plugin_lookup_plugin(struct ubus_context *ctx, struct ubus_object *obj,
-                         char *strptr)
+                         char *strptr, size_t strsize)
 {
-	struct rpc_plugin_lookup_context c = { .id = obj->id, .name = strptr };
+	struct rpc_plugin_lookup_context c = { .id = obj->id, .name = strptr, .namelen = strsize };
 
 	if (ubus_lookup(ctx, NULL, rpc_plugin_lookup_plugin_cb, &c))
 		return false;
@@ -220,7 +221,8 @@ rpc_plugin_call(struct ubus_context *ctx, struct ubus_object *obj,
 
 	plugin = c->path + sprintf(c->path, "%s/", RPC_PLUGIN_DIRECTORY);
 
-	if (!rpc_plugin_lookup_plugin(ctx, obj, plugin))
+	if (!rpc_plugin_lookup_plugin(ctx, obj, plugin,
+	                              sizeof(c->path) - (plugin - c->path)))
 	{
 		rv = UBUS_STATUS_NOT_FOUND;
 		goto fail;
