@@ -579,8 +579,8 @@ rpc_file_list(struct ubus_context *ctx, struct ubus_object *obj,
 				tlen = readlink(entrypath, tbuf, sizeof(tbuf) - 1);
 				if (tlen >= 0) {
 					tbuf[tlen] = '\0';
+					blobmsg_add_string(&buf, "name", tbuf);
 				}
-				blobmsg_add_string(&buf, "name", tbuf);
 
 				struct stat target;
 				if (!stat(entrypath, &target)) {
