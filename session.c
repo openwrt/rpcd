@@ -248,11 +248,34 @@ rpc_session_dump(struct rpc_session *ses, struct ubus_context *ctx,
 	ubus_send_reply(ctx, req, buf.head);
 }
 
+/*
+ * Convert a session timeout in seconds to a millisecond value suitable
+ * for uloop_timeout_set(), clamping to INT_MAX to avoid overflowing the
+ * int argument. Without this, any timeout exceeding ~2147483 seconds
+ * (~24.85 days) would wrap around to a negative value and cause libubox
+ * to fire the timeout callback on the next uloop iteration, destroying
+ * the session immediately after creation.
+ */
+static int
+rpc_session_timeout_ms(int64_t seconds)
+{
+	int64_t msecs;
+
+	if (seconds < 0)
+		seconds = 0;
+
+	msecs = seconds * 1000;
+	if (msecs > INT_MAX)
+		msecs = INT_MAX;
+
+	return (int)msecs;
+}
+
 static void
 rpc_touch_session(struct rpc_session *ses)
 {
 	if (ses->timeout > 0)
-		uloop_timeout_set(&ses->t, ses->timeout * 1000);
+		uloop_timeout_set(&ses->t, rpc_session_timeout_ms(ses->timeout));
 }
 
 static void
@@ -1315,7 +1338,8 @@ rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr)
 
 	avl_insert(&sessions, &ses->avl);
 
-	uloop_timeout_set(&ses->t, blobmsg_get_u64(tb[RPC_DUMP_EXPIRES]) * 1000);
+	uloop_timeout_set(&ses->t,
+	                  rpc_session_timeout_ms(blobmsg_get_u64(tb[RPC_DUMP_EXPIRES])));
 
 	return true;
 }
