@@ -52,6 +52,7 @@ typedef struct {
 	struct list_head list;
 	uc_vm_t vm;
 	uc_resource_type_t *requesttype;
+	uc_resource_type_t *deferredtype;
 	uc_value_t *pending_replies;
 	char *path;
 } rpc_ucode_script_t;
@@ -449,7 +450,8 @@ rpc_ucode_script_call(struct ubus_context *ctx, struct ubus_object *obj,
 		res = uc_vm_stack_pop(&script->vm);
 
 		/* The handler function invoked a nested aync ubus request and returned it */
-		if (ucv_resource_data(res, "ubus.deferred")) {
+		if (ucv_resource_data(res, "ubus.deferred") ||
+			ucv_resource_data(res, "rpcd.ucode.deferred")) {
 			/* Install guard timer in case the reply callback is never called */
 			callctx->timeout.cb = rpc_ucode_request_timeout;
 			uloop_timeout_set(&callctx->timeout, request_timeout);
@@ -803,6 +805,28 @@ free:
 }
 
 static uc_value_t *
+rpc_ucode_request_defer(uc_vm_t *vm, size_t nargs)
+{
+	rpc_ucode_call_ctx_t **callctx = uc_fn_this("rpcd.ucode.request");
+
+	if (!callctx || !*callctx) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+		                      "Cannot invoke defer() on invalid self");
+
+		return NULL;
+	}
+
+	if ((*callctx)->replied) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+		                      "Reply has already been sent");
+
+		return NULL;
+	}
+
+	return uc_resource_new((*callctx)->script->deferredtype, *callctx);
+}
+
+static uc_value_t *
 rpc_ucode_request_reply(uc_vm_t *vm, size_t nargs)
 {
 	rpc_ucode_call_ctx_t **callctx = uc_fn_this("rpcd.ucode.request");
@@ -887,6 +911,7 @@ rpc_ucode_request_error(uc_vm_t *vm, size_t nargs)
 }
 
 static const uc_function_list_t rpc_ucode_request_fns[] = {
+	{ "defer", rpc_ucode_request_defer },
 	{ "reply", rpc_ucode_request_reply },
 	{ "error", rpc_ucode_request_error },
 };
@@ -927,6 +952,7 @@ rpc_ucode_init_globals(rpc_ucode_script_t *script)
 
 	script->requesttype = uc_type_declare(vm, "rpcd.ucode.request",
 		rpc_ucode_request_fns, rpc_ucode_request_gc);
+	script->deferredtype = ucv_resource_type_add(vm, "rpcd.ucode.deferred", NULL, NULL);
 }
 
 static rpc_ucode_script_t *
