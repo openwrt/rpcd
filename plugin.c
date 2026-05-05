@@ -67,12 +67,16 @@ rpc_plugin_json_element_to_blob(const char *name, json_object *val,
 	switch (json_object_get_type(val)) {
 	case json_type_object:
 		c = blobmsg_open_table(blob, name);
+		if (!c)
+			return;
 		rpc_plugin_json_object_to_blob(val, blob);
 		blobmsg_close_table(blob, c);
 		break;
 
 	case json_type_array:
 		c = blobmsg_open_array(blob, name);
+		if (!c)
+			return;
 		rpc_plugin_json_array_to_blob(json_object_get_array(val), blob);
 		blobmsg_close_array(blob, c);
 		break;

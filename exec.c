@@ -122,6 +122,7 @@ rpc_exec_reply(struct rpc_exec_context *c, int rv)
 {
 	uloop_timeout_cancel(&c->timeout);
 	uloop_process_delete(&c->process);
+	c->timeout.cb = NULL;
 
 	if (rv == UBUS_STATUS_OK)
 	{
@@ -167,6 +168,10 @@ rpc_exec_reply_cb(struct uloop_timeout *t)
 static void
 rpc_exec_schedule_reply(struct rpc_exec_context *c, int rv)
 {
+	if (!c->timeout.cb ||
+	    (c->timeout.cb == rpc_exec_reply_cb && c->timeout.pending))
+		return;
+
 	c->deferred_status = rv;
 	c->timeout.cb = rpc_exec_reply_cb;
 	uloop_timeout_set(&c->timeout, 0);
@@ -318,6 +323,12 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 	if (!c)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
+	memset(c, 0, sizeof(*c));
+	if (blob_buf_init(&c->blob, 0) != 0) {
+		free(c);
+		return UBUS_STATUS_UNKNOWN_ERROR;
+	}
+
 	if (pipe(ipipe))
 		goto fail_ipipe;
 
@@ -350,9 +361,6 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 			return rpc_errno_status();
 
 	default:
-		memset(c, 0, sizeof(*c));
-		blob_buf_init(&c->blob, 0);
-
 		c->stdin_cb  = in;
 		c->stdout_cb = out;
 		c->stderr_cb = err;
@@ -402,6 +410,7 @@ fail_opipe:
 	close(ipipe[1]);
 
 fail_ipipe:
+	blob_buf_free(&c->blob);
 	free(c);
 	return rpc_errno_status();
 }
