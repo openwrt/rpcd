@@ -18,7 +18,6 @@
 
 #include <stdbool.h>
 #include <libubus.h>
-#include <sys/mman.h>
 
 #include <rpcd/exec.h>
 #include <rpcd/plugin.h>
@@ -210,8 +209,8 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	void *tbl;
 	struct stat statbuf;
 	const char **world = NULL;
-	char *world_mmap = NULL;
-	size_t world_mmap_size = 0;
+	char *world_buf = NULL;
+	size_t world_size = 0;
 	char *token = NULL;
 
 	/*
@@ -248,31 +247,58 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 			return rpc_errno_status();
 		}
 
-		world_mmap_size = statbuf.st_size + 1;
-		if (world_mmap_size == 1) {
+		world_size = statbuf.st_size + 1;
+		if (world_size == 1) {
 			/* 'world' file is malformed: empty */
 			close(world_fd);
 			fclose(f);
 			return UBUS_STATUS_UNKNOWN_ERROR;
 		}
 
-		world_mmap = (char *)mmap(NULL, world_mmap_size, PROT_READ, MAP_PRIVATE, world_fd, 0);
-		close(world_fd);
-		if (world_mmap == MAP_FAILED) {
+		/*
+		 * Read the whole file into a NUL terminated heap buffer.  The
+		 * parser below relies on C string termination (a trailing NUL at
+		 * world_buf[statbuf.st_size]); mmap() could not guarantee a
+		 * readable byte at that offset when the file size is an exact
+		 * multiple of the page size, which would fault with SIGBUS.
+		 */
+		world_buf = malloc(world_size);
+		if (!world_buf) {
+			close(world_fd);
 			fclose(f);
-			return rpc_errno_status();
+			return UBUS_STATUS_UNKNOWN_ERROR;
 		}
 
-		if (world_mmap[world_mmap_size-2] != '\n') {
+		size_t world_got = 0;
+		while (world_got < (size_t)statbuf.st_size) {
+			ssize_t rd = read(world_fd, world_buf + world_got,
+			                  statbuf.st_size - world_got);
+			if (rd < 0 && errno == EINTR)
+				continue;
+			if (rd <= 0)
+				break;
+			world_got += rd;
+		}
+		close(world_fd);
+
+		if (world_got != (size_t)statbuf.st_size) {
+			free(world_buf);
+			fclose(f);
+			return UBUS_STATUS_UNKNOWN_ERROR;
+		}
+
+		world_buf[statbuf.st_size] = '\0';
+
+		if (world_buf[world_size-2] != '\n') {
 			/* 'world' file is malformed: missing final newline */
-			munmap(world_mmap, world_mmap_size);
+			free(world_buf);
 			fclose(f);
 			return UBUS_STATUS_UNKNOWN_ERROR;
 		}
 
 		/* resulting 'world' pointer map looks like this:
-		 * nstrs = 2 == count of newlines in mmap
-		 * mmap  = "pkg1\npkg2=1.2\n\0"
+		 * nstrs = 2 == count of newlines in buffer
+		 * buf   = "pkg1\npkg2=1.2\n\0"
 		 *          |     |         |
 		 * world[0]-+     |         |
 		 * world[1]-------+         |
@@ -281,18 +307,18 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 
 		size_t istr, nstrs;
 		char *s;
-		for (nstrs = 0, s = world_mmap; s[nstrs]; s[nstrs] == '\n' ? nstrs++ : *s++);
+		for (nstrs = 0, s = world_buf; s[nstrs]; s[nstrs] == '\n' ? nstrs++ : *s++);
 
 		if (nstrs) {
 			/* extra one in world for NULL sentinel */
 			world = (const char **)calloc(nstrs+1, sizeof(char *));
 			if (!world) {
-				munmap(world_mmap, world_mmap_size);
+				free(world_buf);
 				fclose(f);
 				return UBUS_STATUS_UNKNOWN_ERROR;
 			}
-			world[0] = world_mmap;
-			for (istr = 1, s = world_mmap; *s; s++) {
+			world[0] = world_buf;
+			for (istr = 1, s = world_buf; *s; s++) {
 				if (*s == '\n') {
 					world[istr] = s + 1;
 					istr++;
@@ -354,8 +380,8 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 
 	if (world)
 		free(world);
-	if (world_mmap)
-		munmap(world_mmap, world_mmap_size);
+	if (world_buf)
+		free(world_buf);
 
 	blobmsg_close_table(&buf, tbl);
 	ubus_send_reply(ctx, req, buf.head);
