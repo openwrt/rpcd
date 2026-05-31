@@ -327,8 +327,13 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 				if (pkg[0] && ver[0]) {
 					/* Need to check both ABI-versioned and non-versioned pkg */
 					bool keep = is_all_or_world(pkg, world);
-					if (abi[0]) {
-						pkg[strlen(pkg)-strlen(abi)] = '\0';
+					size_t plen = strlen(pkg), alen = strlen(abi);
+					/* The ABI version is expected to be a suffix of the
+					 * package name.  Guard against a malformed status file
+					 * where it is longer, which would underflow the
+					 * unsigned subtraction and write out of bounds. */
+					if (abi[0] && alen <= plen) {
+						pkg[plen - alen] = '\0';
 						if (!keep)
 							keep = is_all_or_world(pkg, world);
 					}
