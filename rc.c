@@ -193,6 +193,7 @@ static void rc_list_readdir(struct rc_list_context *c)
 		closedir(c->dir);
 		ubus_send_reply(c->ctx, &c->req, c->buf->head);
 		ubus_complete_deferred_request(c->ctx, &c->req, UBUS_STATUS_OK);
+		free(c);
 		return;
 	}
 
