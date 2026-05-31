@@ -50,7 +50,7 @@ struct rc_list_context {
 	struct blob_buf *buf;
 	DIR *dir;
 	bool skip_running_check;
-	const char *req_name;
+	char *req_name;
 
 	/* Info about currently processed init.d entry */
 	struct {
@@ -193,6 +193,7 @@ static void rc_list_readdir(struct rc_list_context *c)
 		closedir(c->dir);
 		ubus_send_reply(c->ctx, &c->req, c->buf->head);
 		ubus_complete_deferred_request(c->ctx, &c->req, UBUS_STATUS_OK);
+		free(c->req_name);
 		free(c);
 		return;
 	}
@@ -283,8 +284,11 @@ static int rc_list(struct ubus_context *ctx, struct ubus_object *obj,
 	}
 	if (tb[RC_LIST_SKIP_RUNNING_CHECK])
 		c->skip_running_check = blobmsg_get_bool(tb[RC_LIST_SKIP_RUNNING_CHECK]);
+	/* Copy the requested name: msg (and the ctx receive buffer it points
+	 * into) is only valid during this call, but req_name is dereferenced
+	 * later from the deferred, asynchronous directory walk. */
 	if (tb[RC_LIST_NAME])
-		c->req_name = blobmsg_get_string(tb[RC_LIST_NAME]);
+		c->req_name = strdup(blobmsg_get_string(tb[RC_LIST_NAME]));
 
 	ubus_defer_request(ctx, req, &c->req);
 
