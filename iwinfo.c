@@ -611,32 +611,37 @@ rpc_iwinfo_survey(struct ubus_context *ctx, struct ubus_object *obj,
 	void *c, *d;
 	int i, rv, len;
 
-	blob_buf_init(&buf, 0);
-
 	rv = rpc_iwinfo_open(msg);
+
+	if (rv)
+		return rv;
+
+	blob_buf_init(&buf, 0);
 
 	c = blobmsg_open_array(&buf, "results");
 
-	if (rv || iw->survey(ifname, res, &len) || len < 0)
-		return UBUS_STATUS_OK;
+	if (!iw->survey(ifname, res, &len) && (len > 0))
+	{
+		for (i = 0; i < len; i += sizeof(struct iwinfo_survey_entry)) {
+			e = (struct iwinfo_survey_entry *)&res[i];
 
-	for (i = 0; i < len; i += sizeof(struct iwinfo_survey_entry)) {
-		e = (struct iwinfo_survey_entry *)&res[i];
-
-		d = blobmsg_open_table(&buf, NULL);
-		blobmsg_add_u32(&buf, "mhz", e->mhz);
-		blobmsg_add_u32(&buf, "noise", e->noise);
-		blobmsg_add_u64(&buf, "active_time", e->active_time);
-		blobmsg_add_u64(&buf, "busy_time", e->busy_time);
-		blobmsg_add_u64(&buf, "busy_time_ext", e->busy_time_ext);
-		blobmsg_add_u64(&buf, "rx_time", e->rxtime);
-		blobmsg_add_u64(&buf, "tx_time", e->txtime);
-		blobmsg_close_table(&buf, d);
+			d = blobmsg_open_table(&buf, NULL);
+			blobmsg_add_u32(&buf, "mhz", e->mhz);
+			blobmsg_add_u32(&buf, "noise", e->noise);
+			blobmsg_add_u64(&buf, "active_time", e->active_time);
+			blobmsg_add_u64(&buf, "busy_time", e->busy_time);
+			blobmsg_add_u64(&buf, "busy_time_ext", e->busy_time_ext);
+			blobmsg_add_u64(&buf, "rx_time", e->rxtime);
+			blobmsg_add_u64(&buf, "tx_time", e->txtime);
+			blobmsg_close_table(&buf, d);
+		}
 	}
 
 	blobmsg_close_array(&buf, c);
 	ubus_send_reply(ctx, req, buf.head);
+
 	rpc_iwinfo_close();
+
 	return UBUS_STATUS_OK;
 }
 
