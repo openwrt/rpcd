@@ -255,8 +255,14 @@ rpc_session_dump(struct rpc_session *ses, struct ubus_context *ctx,
 static void
 rpc_touch_session(struct rpc_session *ses)
 {
-	if (ses->timeout > 0)
-		uloop_timeout_set(&ses->t, ses->timeout * 1000);
+	if (ses->timeout > 0) {
+		/* Clamp to avoid signed overflow of the millisecond value: a
+		 * client supplied timeout (seconds) above INT_MAX/1000 would
+		 * wrap negative and make the session expire immediately. */
+		int msecs = (ses->timeout > INT_MAX / 1000)
+			? INT_MAX : ses->timeout * 1000;
+		uloop_timeout_set(&ses->t, msecs);
+	}
 }
 
 static void
