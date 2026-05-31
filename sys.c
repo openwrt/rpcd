@@ -129,11 +129,11 @@ rpc_cgi_password_set(struct ubus_context *ctx, struct ubus_object *obj,
 
 		ret = chdir("/");
 		if (ret < 0)
-			return rpc_errno_status();
+			_exit(127);
 
 		if (execl(passwd, passwd,
 		          blobmsg_data(tb[RPC_P_USER]), NULL))
-			return rpc_errno_status();
+			_exit(127);
 
 	default:
 		close(fds[0]);

@@ -869,7 +869,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 		devnull = open("/dev/null", O_RDWR);
 
 		if (devnull == -1)
-			return UBUS_STATUS_UNKNOWN_ERROR;
+			_exit(127);
 
 		dup2(devnull, 0);
 		dup2(opipe[1], 1);
@@ -885,7 +885,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 		args = malloc(sizeof(char *) * arglen);
 
 		if (!args)
-			return UBUS_STATUS_UNKNOWN_ERROR;
+			_exit(127);
 
 		args[0] = (char *)executable;
 		args[1] = NULL;
@@ -900,7 +900,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 				if (arglen == 255)
 				{
 					free(args);
-					return UBUS_STATUS_INVALID_ARGUMENT;
+					_exit(127);
 				}
 
 				arglen++;
@@ -909,7 +909,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 				if (!tmp)
 				{
 					free(args);
-					return UBUS_STATUS_UNKNOWN_ERROR;
+					_exit(127);
 				}
 
 				args = tmp;
@@ -930,7 +930,7 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 		}
 
 		if (execv(executable, args))
-			return rpc_errno_status();
+			_exit(127);
 
 	default:
 		memset(c, 0, sizeof(*c));
