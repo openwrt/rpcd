@@ -109,6 +109,9 @@ static void rpc_list_exec_timeout_cb(struct uloop_timeout *t)
 
 	uloop_process_delete(&c->process);
 	kill(c->process.pid, SIGKILL);
+	/* uloop no longer tracks the process after uloop_process_delete(), so
+	 * reap the killed child here to avoid leaving a zombie behind. */
+	waitpid(c->process.pid, NULL, 0);
 
 	rc_list_readdir(c);
 }
