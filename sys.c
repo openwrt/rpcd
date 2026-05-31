@@ -280,6 +280,11 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 		if (nstrs) {
 			/* extra one in world for NULL sentinel */
 			world = (const char **)calloc(nstrs+1, sizeof(char *));
+			if (!world) {
+				munmap(world_mmap, world_mmap_size);
+				fclose(f);
+				return UBUS_STATUS_UNKNOWN_ERROR;
+			}
 			world[0] = world_mmap;
 			for (istr = 1, s = world_mmap; *s; s++) {
 				if (*s == '\n') {
