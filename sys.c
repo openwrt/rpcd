@@ -237,11 +237,14 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 	if (!all) {
 		/* We return only those items appearing in 'world' file. */
 		int world_fd = open("/etc/apk/world", O_RDONLY);
-		if (world_fd == -1)
+		if (world_fd == -1) {
+			fclose(f);
 			return rpc_errno_status();
+		}
 
 		if (fstat(world_fd, &statbuf) == -1) {
 			close(world_fd);
+			fclose(f);
 			return rpc_errno_status();
 		}
 
@@ -249,18 +252,21 @@ rpc_sys_packagelist(struct ubus_context *ctx, struct ubus_object *obj,
 		if (world_mmap_size == 1) {
 			/* 'world' file is malformed: empty */
 			close(world_fd);
+			fclose(f);
 			return UBUS_STATUS_UNKNOWN_ERROR;
 		}
 
 		world_mmap = (char *)mmap(NULL, world_mmap_size, PROT_READ, MAP_PRIVATE, world_fd, 0);
 		close(world_fd);
 		if (world_mmap == MAP_FAILED) {
+			fclose(f);
 			return rpc_errno_status();
 		}
 
 		if (world_mmap[world_mmap_size-2] != '\n') {
 			/* 'world' file is malformed: missing final newline */
 			munmap(world_mmap, world_mmap_size);
+			fclose(f);
 			return UBUS_STATUS_UNKNOWN_ERROR;
 		}
 
