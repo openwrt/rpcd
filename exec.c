@@ -353,7 +353,7 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 		close(epipe[1]);
 
 		if (execv(cmd, (char * const *)args))
-			return rpc_errno_status();
+			_exit(127);
 
 	default:
 		memset(c, 0, sizeof(*c));
