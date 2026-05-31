@@ -414,7 +414,9 @@ rpc_file_write(struct ubus_context *ctx, struct ubus_object *obj,
 	if (fd < 0)
 		return rpc_errno_status();
 
-	if (tb[RPC_F_RW_BASE64] && blobmsg_get_bool(tb[RPC_F_RW_BASE64]))
+	/* data_len can be 0 for an empty "data" string; skip the decode in that
+	 * case since b64_decode() asserts on a zero destination size. */
+	if (data_len > 0 && tb[RPC_F_RW_BASE64] && blobmsg_get_bool(tb[RPC_F_RW_BASE64]))
 	{
 		data_len = b64_decode(data, data, data_len);
 		if (data_len < 0)
