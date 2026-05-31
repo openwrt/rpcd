@@ -1635,8 +1635,14 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 		globfree(&gl);
 
 		if (rollback) {
+			/* Clamp to a sane range to avoid signed overflow of the
+			 * millisecond value for a large (or, via uint32 wraparound,
+			 * negative) client supplied timeout, which would otherwise
+			 * fire the rollback timer immediately. */
+			int msecs = (timeout > 0 && timeout <= INT_MAX / 1000)
+				? timeout * 1000 : INT_MAX;
 			apply_timer.cb = rpc_uci_apply_timeout;
-			uloop_timeout_set(&apply_timer, timeout * 1000);
+			uloop_timeout_set(&apply_timer, msecs);
 			apply_ctx = ctx;
 		}
 	}
