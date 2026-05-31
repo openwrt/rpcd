@@ -196,6 +196,12 @@ rpc_exec_process_cb(struct uloop_process *p, int stat)
 	close(c->opipe.fd.fd);
 	close(c->epipe.fd.fd);
 
+	/* ustream_free() does not reset the fd, and rpc_exec_reply() closes it
+	 * again later.  Mark the descriptors as consumed so that the second
+	 * close() cannot accidentally close an unrelated, meanwhile reused fd. */
+	c->opipe.fd.fd = -1;
+	c->epipe.fd.fd = -1;
+
 	ustream_poll(&c->opipe.stream);
 	ustream_poll(&c->epipe.stream);
 }
