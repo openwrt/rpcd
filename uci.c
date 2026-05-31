@@ -197,7 +197,7 @@ rpc_uci_verify_str(const char *name, bool extended, bool type)
 		extended = false;
 
 	for (c = name + extended; *c; c++)
-		if (!isalnum(*c) && *c != '_' && ((!type && !extended) || *c != '-'))
+		if (!isalnum((unsigned char)*c) && *c != '_' && ((!type && !extended) || *c != '-'))
 			break;
 
 	if (extended) {

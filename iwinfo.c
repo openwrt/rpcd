@@ -135,7 +135,7 @@ rpc_iwinfo_lower(const char *src, char *dst, size_t len)
 	size_t i;
 
 	for (i = 0; *src && i < len; i++)
-		*dst++ = tolower(*src++);
+		*dst++ = tolower((unsigned char)*src++);
 
 	*dst = 0;
 }

@@ -191,7 +191,7 @@ static bool
 is_blank(const char *line)
 {
 	for (; *line; line++)
-		if (!isspace(*line))
+		if (!isspace((unsigned char)*line))
 			return false;
 	return true;
 }

@@ -939,7 +939,7 @@ rpc_login_test_permission(struct uci_section *s,
 			if (!p || *p != '!')
 				continue;
 
-			while (isspace(*++p));
+			while (isspace((unsigned char)*++p));
 
 			if (!*p)
 				continue;
@@ -1207,7 +1207,7 @@ rpc_validate_sid(const char *id)
 		return false;
 
 	while (*id)
-		if (!isxdigit(*id++))
+		if (!isxdigit((unsigned char)*id++))
 			return false;
 
 	return true;
