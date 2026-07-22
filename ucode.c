@@ -762,7 +762,7 @@ rpc_ucode_script_register(struct ubus_context *ctx, rpc_ucode_script_t *script)
 		uuobj->script = script;
 		uuobj->signature = ubus_object_methods;
 
-		snprintf(tnptr, typelen, "rpcd-plugin-ucode-%s", ubus_object_name);
+		snprintf(tnptr, typelen + 1, "rpcd-plugin-ucode-%s", ubus_object_name);
 
 		method = (struct ubus_method *)mptr;
 

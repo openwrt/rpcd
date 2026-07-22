@@ -152,7 +152,7 @@ rpc_random(char *dest)
 	unsigned char buf[16] = { 0 };
 	FILE *f;
 	int i;
-	int ret;
+	size_t ret;
 
 	f = fopen("/dev/urandom", "r");
 	if (!f)
@@ -161,8 +161,12 @@ rpc_random(char *dest)
 	ret = fread(buf, 1, sizeof(buf), f);
 	fclose(f);
 
-	if (ret < 0)
-		return ret;
+	/* fread() returns a size_t, so a short read can never be negative.
+	 * Require the full buffer to be filled, otherwise we would derive the
+	 * session id from (partially) uninitialized/zero data, resulting in a
+	 * predictable identifier. */
+	if (ret != sizeof(buf))
+		return -1;
 
 	for (i = 0; i < sizeof(buf); i++)
 		sprintf(dest + (i<<1), "%02x", buf[i]);
@@ -952,7 +956,7 @@ rpc_login_test_permission(struct uci_section *s,
 			if (!p || *p != '!')
 				continue;
 
-			while (isspace(*++p));
+			while (isspace((unsigned char)*++p));
 
 			if (!*p)
 				continue;
@@ -1220,7 +1224,7 @@ rpc_validate_sid(const char *id)
 		return false;
 
 	while (*id)
-		if (!isxdigit(*id++))
+		if (!isxdigit((unsigned char)*id++))
 			return false;
 
 	return true;
