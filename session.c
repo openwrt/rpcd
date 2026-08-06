@@ -1362,6 +1362,10 @@ rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr,
 	return true;
 }
 
+/* Methods that act only on the session id handed to them; open to non-root
+ * callers so they can log in. libubus and ubusd do not read method tags. */
+#define RPC_SESSION_TAG_OPEN	(1ul << 31)
+
 int rpc_session_api_init(struct ubus_context *ctx)
 {
 	struct rpc_session *ses;
@@ -1371,12 +1375,18 @@ int rpc_session_api_init(struct ubus_context *ctx)
 		UBUS_METHOD("list",    rpc_handle_list,    sid_policy),
 		UBUS_METHOD("grant",   rpc_handle_acl,     acl_policy),
 		UBUS_METHOD("revoke",  rpc_handle_acl,     acl_policy),
-		UBUS_METHOD("access",  rpc_handle_access,  perm_policy),
-		UBUS_METHOD("set",     rpc_handle_set,     set_policy),
-		UBUS_METHOD("get",     rpc_handle_get,     get_policy),
-		UBUS_METHOD("unset",   rpc_handle_unset,   get_policy),
-		UBUS_METHOD("destroy", rpc_handle_destroy, sid_policy),
-		UBUS_METHOD("login",   rpc_handle_login,   login_policy),
+		UBUS_METHOD_TAG("access",  rpc_handle_access,  perm_policy,
+		                RPC_SESSION_TAG_OPEN),
+		UBUS_METHOD_TAG("set",     rpc_handle_set,     set_policy,
+		                RPC_SESSION_TAG_OPEN),
+		UBUS_METHOD_TAG("get",     rpc_handle_get,     get_policy,
+		                RPC_SESSION_TAG_OPEN),
+		UBUS_METHOD_TAG("unset",   rpc_handle_unset,   get_policy,
+		                RPC_SESSION_TAG_OPEN),
+		UBUS_METHOD_TAG("destroy", rpc_handle_destroy, sid_policy,
+		                RPC_SESSION_TAG_OPEN),
+		UBUS_METHOD_TAG("login",   rpc_handle_login,   login_policy,
+		                RPC_SESSION_TAG_OPEN),
 	};
 
 	static struct ubus_object_type session_type =
@@ -1401,6 +1411,36 @@ int rpc_session_api_init(struct ubus_context *ctx)
 	}
 
 	return ubus_add_object(ctx, &obj);
+}
+
+int
+rpc_session_pre_invoke(struct ubus_context *ctx, struct ubus_object *obj,
+                       const struct ubus_method *method,
+                       struct ubus_request_data *req, struct blob_attr *msg)
+{
+	const char *sid = RPC_DEFAULT_SESSION_ID;
+	struct blob_attr *cur;
+	size_t rem;
+
+	/* ubusd exempts uid 0 from its own ACLs, so a non-root caller only
+	 * reaches us because a /usr/share/acl.d entry let it through. Hold it
+	 * to the same session ACL the ubus proxies check before forwarding. */
+	if (!req->acl.user || !strcmp(req->acl.user, "root") ||
+	    (method->tags & RPC_SESSION_TAG_OPEN))
+		return 0;
+
+	if (!method->name)
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	blobmsg_for_each_attr(cur, msg, rem)
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_STRING &&
+		    !strcmp(blobmsg_name(cur), "ubus_rpc_session"))
+			sid = blobmsg_get_string(cur);
+
+	if (!rpc_session_access(sid, "ubus", obj->name, method->name))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	return 0;
 }
 
 bool rpc_session_access(const char *sid, const char *scope,

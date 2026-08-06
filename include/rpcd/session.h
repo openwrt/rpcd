@@ -72,6 +72,10 @@ struct rpc_session_acl {
 };
 
 int rpc_session_api_init(struct ubus_context *ctx);
+int rpc_session_pre_invoke(struct ubus_context *ctx, struct ubus_object *obj,
+                           const struct ubus_method *method,
+                           struct ubus_request_data *req,
+                           struct blob_attr *msg);
 
 bool rpc_session_access(const char *sid, const char *scope,
                         const char *object, const char *function);
