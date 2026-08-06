@@ -119,6 +119,11 @@ int main(int argc, char **argv)
 	rpc_rc_api_init(ctx);
 	rpc_plugin_api_init(ctx);
 
+	if (rpc_session_guard_objects(ctx)) {
+		fprintf(stderr, "Failed to guard ubus objects\n");
+		return -1;
+	}
+
 	hangup = getenv("RPC_HANGUP");
 
 	if (!hangup || strcmp(hangup, "1"))
