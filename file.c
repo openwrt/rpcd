@@ -29,6 +29,8 @@
 #include <string.h>
 #include <limits.h>
 #include <dirent.h>
+#include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <libubus.h>
@@ -44,6 +46,10 @@
 
 /* limit of regular files and command output data */
 #define RPC_FILE_MAX_SIZE		(4096 * 64)
+
+/* 16 MB ceiling for streamed command output; the kernel enforces it via
+ * RLIMIT_FSIZE and the child dies with SIGXFSZ at the limit */
+#define RPC_FILE_STREAM_MAX_SIZE	(4096 * 4096)
 
 /* limit of command line length for exec acl checks */
 #define RPC_CMDLINE_MAX_SIZE	(1024)
@@ -72,6 +78,9 @@ struct rpc_file_exec_context {
 	struct ustream_fd epipe;
 	int stat;
 	int deferred_status;
+	int memfd;
+	bool stream;
+	bool child_exited;
 };
 
 
@@ -130,6 +139,7 @@ enum {
 	RPC_E_CMD,
 	RPC_E_PARM,
 	RPC_E_ENV,
+	RPC_E_STREAM,
 	RPC_E_SESSION,
 	__RPC_E_MAX,
 };
@@ -138,6 +148,7 @@ static const struct blobmsg_policy rpc_exec_policy[__RPC_E_MAX] = {
 	[RPC_E_CMD]     = { .name = "command", .type = BLOBMSG_TYPE_STRING },
 	[RPC_E_PARM]    = { .name = "params",  .type = BLOBMSG_TYPE_ARRAY  },
 	[RPC_E_ENV]     = { .name = "env",     .type = BLOBMSG_TYPE_TABLE  },
+	[RPC_E_STREAM]  = { .name = "stream",  .type = BLOBMSG_TYPE_BOOL   },
 	[RPC_E_SESSION] = { .name = "ubus_rpc_session",
 	                    .type = BLOBMSG_TYPE_STRING },
 };
@@ -915,13 +926,23 @@ rpc_file_exec_reply(struct rpc_file_exec_context *c, int rv)
 	uloop_timeout_cancel(&c->timeout);
 	uloop_process_delete(&c->process);
 
+	if (c->stream && c->memfd >= 0) {
+		lseek(c->memfd, 0, SEEK_SET);
+		ubus_request_set_fd(c->context, &c->request, c->memfd);
+		c->memfd = -1; /* ubus_complete_deferred_request() closes the fd */
+	}
+
 	if (rv == UBUS_STATUS_OK)
 	{
 		blob_buf_init(&buf, 0);
 
-		blobmsg_add_u32(&buf, "code", WEXITSTATUS(c->stat));
+		blobmsg_add_u32(&buf, "code",
+		                WIFSIGNALED(c->stat) ? 128 + WTERMSIG(c->stat)
+		                                     : WEXITSTATUS(c->stat));
 
-		rpc_ustream_to_blobmsg(&c->opipe.stream, "stdout");
+		if (!c->stream)
+			rpc_ustream_to_blobmsg(&c->opipe.stream, "stdout");
+
 		rpc_ustream_to_blobmsg(&c->epipe.stream, "stderr");
 
 		ubus_send_reply(c->context, &c->request, buf.head);
@@ -930,10 +951,13 @@ rpc_file_exec_reply(struct rpc_file_exec_context *c, int rv)
 
 	ubus_complete_deferred_request(c->context, &c->request, rv);
 
-	ustream_free(&c->opipe.stream);
 	ustream_free(&c->epipe.stream);
 
-	close(c->opipe.fd.fd);
+	if (!c->stream) {
+		ustream_free(&c->opipe.stream);
+		close(c->opipe.fd.fd);
+	}
+
 	close(c->epipe.fd.fd);
 
 	free(c);
@@ -974,7 +998,15 @@ rpc_file_exec_process_cb(struct uloop_process *p, int stat)
 
 	c->stat = stat;
 
-	ustream_poll(&c->opipe.stream);
+	if (c->stream) {
+		c->child_exited = true;
+
+		if (c->epipe.stream.eof)
+			rpc_file_exec_schedule_reply(c, UBUS_STATUS_OK);
+	} else {
+		ustream_poll(&c->opipe.stream);
+	}
+
 	ustream_poll(&c->epipe.stream);
 }
 
@@ -1014,7 +1046,8 @@ rpc_file_exec_epipe_state_cb(struct ustream *s)
 	struct rpc_file_exec_context *c =
 		container_of(s, struct rpc_file_exec_context, epipe.stream);
 
-	if (c->opipe.stream.eof && c->epipe.stream.eof)
+	if (c->epipe.stream.eof &&
+	    (c->stream ? c->child_exited : c->opipe.stream.eof))
 		rpc_file_exec_schedule_reply(c, UBUS_STATUS_OK);
 }
 
@@ -1028,13 +1061,15 @@ rpc_fdclose(int fd)
 static int
 rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
                   const struct blob_attr *arg, const struct blob_attr *env,
+                  bool stream,
                   struct ubus_context *ctx, struct ubus_request_data *req)
 {
 	pid_t pid;
 
 	int devnull;
-	int opipe[2];
+	int opipe[2] = { -1, -1 };
 	int epipe[2];
+	int outfd = -1;
 
 	int rem;
 	struct blob_attr *cur;
@@ -1087,8 +1122,16 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 	if (!c)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
-	if (pipe(opipe))
+	if (stream) {
+		c->memfd = memfd_create("exec", MFD_CLOEXEC);
+		if (c->memfd < 0)
+			goto fail_opipe;
+		outfd = c->memfd;
+	} else if (pipe(opipe)) {
 		goto fail_opipe;
+	} else {
+		outfd = opipe[1];
+	}
 
 	if (pipe(epipe))
 		goto fail_epipe;
@@ -1107,12 +1150,12 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 			_exit(127);
 
 		dup2(devnull, 0);
-		dup2(opipe[1], 1);
+		dup2(outfd, 1);
 		dup2(epipe[1], 2);
 
 		rpc_fdclose(devnull);
+		rpc_fdclose(outfd);
 		rpc_fdclose(opipe[0]);
-		rpc_fdclose(opipe[1]);
 		rpc_fdclose(epipe[0]);
 		rpc_fdclose(epipe[1]);
 
@@ -1164,13 +1207,27 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 			}
 		}
 
+		if (stream) {
+			struct rlimit rl = {
+				.rlim_cur = RPC_FILE_STREAM_MAX_SIZE,
+				.rlim_max = RPC_FILE_STREAM_MAX_SIZE,
+			};
+			setrlimit(RLIMIT_FSIZE, &rl);
+		}
+
 		if (execv(executable, args))
 			_exit(127);
 
 	default:
 		memset(c, 0, sizeof(*c));
 
-		ustream_declare(c->opipe, opipe[0], exec_opipe);
+		c->stream = stream;
+		c->memfd = stream ? outfd : -1;
+
+		if (!stream) {
+			ustream_declare(c->opipe, opipe[0], exec_opipe);
+		}
+
 		ustream_declare(c->epipe, epipe[0], exec_epipe);
 
 		c->process.pid = pid;
@@ -1180,7 +1237,9 @@ rpc_file_exec_run(const char *cmd, const struct blob_attr *sid,
 		c->timeout.cb = rpc_file_exec_timeout_cb;
 		uloop_timeout_set(&c->timeout, *ops->exec_timeout);
 
-		close(opipe[1]);
+		if (!stream)
+			close(opipe[1]);
+
 		close(epipe[1]);
 
 		c->context = ctx;
@@ -1194,8 +1253,12 @@ fail_fork:
 	close(epipe[1]);
 
 fail_epipe:
-	close(opipe[0]);
-	close(opipe[1]);
+	if (stream)
+		close(c->memfd);
+	else {
+		close(opipe[0]);
+		close(opipe[1]);
+	}
 
 fail_opipe:
 	free(c);
@@ -1216,7 +1279,9 @@ rpc_file_exec(struct ubus_context *ctx, struct ubus_object *obj,
 		return UBUS_STATUS_INVALID_ARGUMENT;
 
 	return rpc_file_exec_run(blobmsg_data(tb[RPC_E_CMD]), tb[RPC_E_SESSION],
-	                         tb[RPC_E_PARM], tb[RPC_E_ENV], ctx, req);
+	                         tb[RPC_E_PARM], tb[RPC_E_ENV],
+	                         tb[RPC_E_STREAM] && blobmsg_get_bool(tb[RPC_E_STREAM]),
+	                         ctx, req);
 }
 
 
