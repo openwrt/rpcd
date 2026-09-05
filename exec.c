@@ -16,6 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE /* pipe2() */
+
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
@@ -335,13 +337,16 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 	if (!c)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
-	if (pipe(ipipe))
+	/* O_CLOEXEC: a concurrently forked child must not inherit the pipes of its
+	 * siblings -- see rpc_exec_process_cb().  dup2() onto 0/1/2 does not carry
+	 * the flag over, so the child keeps its own three pipes. */
+	if (pipe2(ipipe, O_CLOEXEC))
 		goto fail_ipipe;
 
-	if (pipe(opipe))
+	if (pipe2(opipe, O_CLOEXEC))
 		goto fail_opipe;
 
-	if (pipe(epipe))
+	if (pipe2(epipe, O_CLOEXEC))
 		goto fail_epipe;
 
 	switch ((pid = fork()))
