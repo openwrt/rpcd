@@ -459,7 +459,12 @@ rpc_file_read(struct ubus_context *ctx, struct ubus_object *obj,
 		goto out;
 	}
 
-	if ((len = read(fd, wbuf, s.st_size)) <= 0)
+	len = read(fd, wbuf, s.st_size);
+
+	/* read() returns 0 for an empty file (st_size 0), which must reply
+	 * "data": "" rather than failing; only actual read errors (< 0) map
+	 * to UBUS_STATUS_NO_DATA. */
+	if (len < 0)
 	{
 		rv = UBUS_STATUS_NO_DATA;
 		goto out;
