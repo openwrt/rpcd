@@ -1389,6 +1389,100 @@ int rpc_session_api_init(struct ubus_context *ctx)
 	return ubus_add_object(ctx, &obj);
 }
 
+static bool
+rpc_session_own_method(const char *method)
+{
+	static const char * const methods[] = {
+		"access", "destroy", "get", "login", "set", "unset"
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(methods); i++)
+		if (!strcmp(method, methods[i]))
+			return true;
+
+	return false;
+}
+
+struct rpc_guarded_object {
+	struct list_head list;
+	struct ubus_object *obj;
+	const struct ubus_method *methods;
+};
+
+static LIST_HEAD(guarded_objects);
+
+static int
+rpc_session_guard(struct ubus_context *ctx, struct ubus_object *obj,
+                  struct ubus_request_data *req, const char *method,
+                  struct blob_attr *msg)
+{
+	struct rpc_guarded_object *g;
+	const char *sid = RPC_DEFAULT_SESSION_ID;
+	struct blob_attr *cur;
+	size_t rem;
+	int i;
+
+	/* ubusd exempts uid 0 from its own ACLs, so a non-root caller only
+	 * reaches us because a /usr/share/acl.d entry let it through. Hold it
+	 * to the same session ACL the ubus proxies check before forwarding,
+	 * bar the methods that act on nothing but the session id handed to
+	 * them - those are how a caller logs in and reaches its own session. */
+	if (req->acl.user && strcmp(req->acl.user, "root") &&
+	    !(!strcmp(obj->name, "session") && rpc_session_own_method(method))) {
+		blobmsg_for_each_attr(cur, msg, rem)
+			if (blobmsg_type(cur) == BLOBMSG_TYPE_STRING &&
+			    !strcmp(blobmsg_name(cur), "ubus_rpc_session"))
+				sid = blobmsg_get_string(cur);
+
+		if (!rpc_session_access(sid, "ubus", obj->name, method))
+			return UBUS_STATUS_PERMISSION_DENIED;
+	}
+
+	list_for_each_entry(g, &guarded_objects, list)
+		if (g->obj == obj)
+			for (i = 0; i < obj->n_methods; i++)
+				if (!obj->methods[i].name ||
+				    !strcmp(obj->methods[i].name, method))
+					return g->methods[i].handler(ctx, obj,
+					                             req, method,
+					                             msg);
+
+	return UBUS_STATUS_METHOD_NOT_FOUND;
+}
+
+int rpc_session_guard_objects(struct ubus_context *ctx)
+{
+	struct rpc_guarded_object *g;
+	struct ubus_method *methods;
+	struct ubus_object *obj;
+	int i;
+
+	avl_for_each_element(&ctx->objects, obj, avl) {
+		g = calloc(1, sizeof(*g));
+		methods = calloc(obj->n_methods, sizeof(*methods));
+
+		if (!g || !methods) {
+			free(methods);
+			free(g);
+			return -1;
+		}
+
+		memcpy(methods, obj->methods, obj->n_methods * sizeof(*methods));
+
+		for (i = 0; i < obj->n_methods; i++)
+			methods[i].handler = rpc_session_guard;
+
+		g->obj = obj;
+		g->methods = obj->methods;
+		list_add(&g->list, &guarded_objects);
+
+		obj->methods = methods;
+	}
+
+	return 0;
+}
+
 bool rpc_session_access(const char *sid, const char *scope,
                         const char *object, const char *function)
 {
