@@ -93,6 +93,7 @@ enum {
 	RPC_SP_SCOPE,
 	RPC_SP_OBJECT,
 	RPC_SP_FUNCTION,
+	RPC_SP_NOTOUCH,
 	__RPC_SP_MAX,
 };
 static const struct blobmsg_policy perm_policy[__RPC_SP_MAX] = {
@@ -100,6 +101,7 @@ static const struct blobmsg_policy perm_policy[__RPC_SP_MAX] = {
 	[RPC_SP_SCOPE] = { .name = "scope", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SP_OBJECT] = { .name = "object", .type = BLOBMSG_TYPE_STRING },
 	[RPC_SP_FUNCTION] = { .name = "function", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SP_NOTOUCH] = { .name = "notouch", .type = BLOBMSG_TYPE_BOOL },
 };
 
 enum {
@@ -373,7 +375,6 @@ rpc_session_get(const char *id)
 	if (!ses)
 		return NULL;
 
-	rpc_touch_session(ses);
 	return ses;
 }
 
@@ -629,6 +630,9 @@ rpc_handle_access(struct ubus_context *ctx, struct ubus_object *obj,
 	ses = rpc_session_get(blobmsg_data(tb[RPC_SP_SID]));
 	if (!ses)
 		return UBUS_STATUS_NOT_FOUND;
+
+	if (!tb[RPC_SP_NOTOUCH] || !blobmsg_get_bool(tb[RPC_SP_NOTOUCH]))
+		rpc_touch_session(ses);
 
 	blob_buf_init(&buf, 0);
 
