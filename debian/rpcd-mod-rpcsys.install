@@ -1,0 +1,2 @@
+usr/lib/rpcd/rpcsys.so
+debian/acl/rpcsys.json etc/rpcd/acl.d/
