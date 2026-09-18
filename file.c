@@ -919,6 +919,7 @@ rpc_file_exec_reply(struct rpc_file_exec_context *c, int rv)
 {
 	uloop_timeout_cancel(&c->timeout);
 	uloop_process_delete(&c->process);
+	c->timeout.cb = NULL;
 
 	if (rv == UBUS_STATUS_OK)
 	{
@@ -956,6 +957,10 @@ rpc_file_exec_reply_cb(struct uloop_timeout *t)
 static void
 rpc_file_exec_schedule_reply(struct rpc_file_exec_context *c, int rv)
 {
+	if (!c->timeout.cb ||
+	    (c->timeout.cb == rpc_file_exec_reply_cb && c->timeout.pending))
+		return;
+
 	c->deferred_status = rv;
 	c->timeout.cb = rpc_file_exec_reply_cb;
 	uloop_timeout_set(&c->timeout, 0);
