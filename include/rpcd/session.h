@@ -42,6 +42,11 @@ struct rpc_session {
 	struct avl_node avl;
 	char id[RPC_SID_LEN + 1];
 
+	/* Name used for the runtime directories and files belonging to this
+	 * session. Deliberately independent of "id" above: the session id is a
+	 * bearer credential and must never be exposed as a file system name. */
+	char dirname[RPC_SID_LEN + 1];
+
 	struct uloop_timeout t;
 	struct avl_tree data;
 	struct avl_tree acls;
@@ -70,6 +75,8 @@ int rpc_session_api_init(struct ubus_context *ctx);
 
 bool rpc_session_access(const char *sid, const char *scope,
                         const char *object, const char *function);
+
+const char *rpc_session_dirname(const char *sid);
 
 struct rpc_session_cb {
 	struct list_head list;

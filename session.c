@@ -328,6 +328,14 @@ rpc_session_new(void)
 	if (!ses)
 		return NULL;
 
+	/* Derive the name of the session's runtime directories from a separate
+	 * random value instead of from the session id, so that merely learning
+	 * such a name does not leak the bearer credential. */
+	if (rpc_random(ses->dirname)) {
+		free(ses);
+		return NULL;
+	}
+
 	ses->avl.key = ses->id;
 
 	avl_init(&ses->acls, avl_strcmp, true, NULL);
@@ -1300,7 +1308,8 @@ fail:
 }
 
 static bool
-rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr)
+rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr,
+                      const char *dirname)
 {
 	int i, rem;
 	const char *user = NULL;
@@ -1321,6 +1330,11 @@ rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr)
 		return false;
 
 	memcpy(ses->id, blobmsg_data(tb[RPC_DUMP_SID]), RPC_SID_LEN);
+
+	/* Keep the directory name of the frozen session instead of the fresh
+	 * one from rpc_session_new(), so that the session finds its uci delta
+	 * directory again, which is not purged when reloading. */
+	memcpy(ses->dirname, dirname, RPC_SID_LEN);
 
 	ses->timeout = blobmsg_get_u32(tb[RPC_DUMP_TIMEOUT]);
 
@@ -1400,6 +1414,26 @@ bool rpc_session_access(const char *sid, const char *scope,
 	return rpc_session_acl_allowed(ses, scope, object, function);
 }
 
+/*
+ * Map a session id to the name to use for the session's runtime directories.
+ * Returns NULL if no such session exists. Does not touch the session, so that
+ * looking up a directory name cannot extend a session's lifetime.
+ */
+const char *rpc_session_dirname(const char *sid)
+{
+	struct rpc_session *ses;
+
+	if (!sid)
+		return NULL;
+
+	ses = avl_find_element(&sessions, sid, ses, avl);
+
+	if (!ses)
+		return NULL;
+
+	return ses->dirname;
+}
+
 void rpc_session_create_cb(struct rpc_session_cb *cb)
 {
 	if (cb && cb->cb)
@@ -1426,7 +1460,8 @@ void rpc_session_freeze(void)
 		if (!strcmp(ses->id, RPC_DEFAULT_SESSION_ID))
 			continue;
 
-		snprintf(path, sizeof(path) - 1, RPC_SESSION_DIRECTORY "/%s", ses->id);
+		snprintf(path, sizeof(path) - 1, RPC_SESSION_DIRECTORY "/%s",
+		         ses->dirname);
 		rpc_session_to_blob(ses, false);
 		rpc_blob_to_file(path, buf.head);
 	}
@@ -1451,6 +1486,11 @@ void rpc_session_thaw(void)
 		return;
 
 	while ((e = readdir(d)) != NULL) {
+		/* The file name is the session's random directory name, not its
+		 * id, but both have the same format, so this still serves as a
+		 * check for files written by us. The restored session id is
+		 * taken from the file contents, its directory name from the
+		 * file name. */
 		if (!rpc_validate_sid(e->d_name))
 			continue;
 
@@ -1460,7 +1500,7 @@ void rpc_session_thaw(void)
 		attr = rpc_blob_from_file(path);
 
 		if (attr) {
-			rpc_session_from_blob(uci, attr);
+			rpc_session_from_blob(uci, attr, e->d_name);
 			free(attr);
 		}
 

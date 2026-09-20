@@ -289,6 +289,7 @@ static void
 rpc_uci_set_savedir(struct blob_attr *sid)
 {
 	char path[PATH_MAX];
+	const char *dirname;
 
 	if (!sid)
 	{
@@ -296,8 +297,19 @@ rpc_uci_set_savedir(struct blob_attr *sid)
 		return;
 	}
 
+	dirname = rpc_session_dirname(blobmsg_get_string(sid));
+
+	if (!dirname)
+	{
+		/* Unknown session. The callers reject the request through the
+		 * subsequent ACL check, so just make sure that no delta can be
+		 * written in the meantime. */
+		rpc_uci_replace_savedir("/dev/null");
+		return;
+	}
+
 	snprintf(path, sizeof(path) - 1,
-	         RPC_UCI_SAVEDIR_PREFIX "%s", blobmsg_get_string(sid));
+	         RPC_UCI_SAVEDIR_PREFIX "%s", dirname);
 
 	rpc_uci_replace_savedir(path);
 }
@@ -1509,6 +1521,7 @@ rpc_uci_do_rollback(struct ubus_context *ctx, glob_t *gl)
 {
 	int i, deny;
 	char tmp[PATH_MAX];
+	const char *dirname;
 
 	/* Test apply permission to see if the initiator session still exists.
 	 * If it does, restore the delta files as well, else just restore the
@@ -1516,8 +1529,12 @@ rpc_uci_do_rollback(struct ubus_context *ctx, glob_t *gl)
 	deny = apply_sid[0]
 		? rpc_uci_apply_access(apply_sid, gl) : UBUS_STATUS_NOT_FOUND;
 
-	if (!deny) {
-		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", apply_sid);
+	dirname = deny ? NULL : rpc_session_dirname(apply_sid);
+
+	if (!dirname)
+		deny = UBUS_STATUS_NOT_FOUND;
+	else {
+		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", dirname);
 		mkdir(tmp, 0700);
 	}
 
@@ -1571,6 +1588,7 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 	int timeout = RPC_APPLY_TIMEOUT;
 	char tmp[PATH_MAX];
 	bool rollback = false;
+	const char *dirname;
 	int ret, i;
 	char *sid;
 	glob_t gl;
@@ -1596,16 +1614,21 @@ rpc_uci_apply(struct ubus_context *ctx, struct ubus_object *obj,
 	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
 
 	if (!apply_sid[0]) {
+		dirname = rpc_session_dirname(sid);
+
+		if (!dirname)
+			return UBUS_STATUS_NOT_FOUND;
+
 		rpc_uci_set_savedir(tb[RPC_T_SESSION]);
 
 		mkdir(RPC_SNAPSHOT_FILES, 0700);
 		mkdir(RPC_SNAPSHOT_DELTA, 0700);
 
-		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/*", sid);
+		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/*", dirname);
 		if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
 			return UBUS_STATUS_NOT_FOUND;
 
-		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", sid);
+		snprintf(tmp, sizeof(tmp), RPC_UCI_SAVEDIR_PREFIX "%s/", dirname);
 
 		ret = rpc_uci_apply_access(sid, &gl);
 		if (ret) {
@@ -1741,7 +1764,7 @@ rpc_uci_purge_savedir_cb(struct rpc_session *ses, void *priv)
 {
 	char path[PATH_MAX];
 
-	snprintf(path, sizeof(path) - 1, RPC_UCI_SAVEDIR_PREFIX "%s", ses->id);
+	snprintf(path, sizeof(path) - 1, RPC_UCI_SAVEDIR_PREFIX "%s", ses->dirname);
 	rpc_uci_purge_dir(path);
 }
 
