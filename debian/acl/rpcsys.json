@@ -1,0 +1,10 @@
+{
+  "rpc-sys": {
+    "description": "Read-only rpcd sys plugin calls",
+    "read": {
+      "ubus": {
+        "rpc-sys": [ "board", "info", "uptime" ]
+      }
+    }
+  }
+}

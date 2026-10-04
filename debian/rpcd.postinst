@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    if ! id rpcd >/dev/null 2>&1; then
+      adduser --system --ingroup rpcd --home /var/lib/rpcd --no-create-home \
+        --disabled-login --shell /usr/sbin/nologin rpcd
+    fi
+  ;;
+esac
+
+exit 0
