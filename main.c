@@ -119,6 +119,8 @@ int main(int argc, char **argv)
 	rpc_rc_api_init(ctx);
 	rpc_plugin_api_init(ctx);
 
+	ctx->pre_invoke = rpc_session_pre_invoke;
+
 	hangup = getenv("RPC_HANGUP");
 
 	if (!hangup || strcmp(hangup, "1"))
