@@ -16,6 +16,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <errno.h>
+#include <poll.h>
+#include <signal.h>
+#include <time.h>
+
+#include <libubox/ulog.h>
+
 #include <rpcd/plugin.h>
 
 static struct blob_buf buf;
@@ -320,8 +327,41 @@ rpc_plugin_parse_signature(struct blob_attr *sig, struct ubus_method *method)
 	return true;
 }
 
+static int64_t
+rpc_plugin_now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+
+	return ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
+}
+
+static int
+rpc_plugin_read(int fd, char *buf, size_t len, int64_t deadline,
+                bool *timed_out)
+{
+	struct pollfd pfd = { .fd = fd, .events = POLLIN };
+	int64_t left;
+	int rv;
+
+	do {
+		left = deadline - rpc_plugin_now_ms();
+		rv = poll(&pfd, 1, (left > 0) ? (int)left : 0);
+	} while (rv < 0 && errno == EINTR);
+
+	if (rv == 0)
+		*timed_out = true;
+
+	if (rv <= 0)
+		return -1;
+
+	return read(fd, buf, len);
+}
+
 static struct ubus_object *
-rpc_plugin_parse_exec(const char *name, int fd)
+rpc_plugin_parse_exec(const char *name, int fd, int64_t deadline,
+                      bool *timed_out)
 {
 	int len, rem, n_method;
 	struct blob_attr *cur;
@@ -340,7 +380,8 @@ rpc_plugin_parse_exec(const char *name, int fd)
 	if (!tok)
 		return NULL;
 
-	while ((len = read(fd, outbuf, sizeof(outbuf))) > 0)
+	while ((len = rpc_plugin_read(fd, outbuf, sizeof(outbuf),
+	                              deadline, timed_out)) > 0)
 	{
 		jsobj = json_tokener_parse_ex(tok, outbuf, len);
 
@@ -421,6 +462,8 @@ rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 	int rv = UBUS_STATUS_NO_DATA, fd, fds[2];
 	const char *name;
 	struct ubus_object *plugin;
+	int64_t deadline;
+	bool timed_out = false;
 
 	name = strrchr(path, '/');
 
@@ -429,6 +472,10 @@ rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 
 	if (pipe(fds))
 		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	/* rpcd serves nothing until every plugin has answered, so a plugin
+	 * that hangs must not get more time than an exec call would. */
+	deadline = rpc_plugin_now_ms() + rpc_exec_timeout;
 
 	switch ((pid = fork()))
 	{
@@ -463,7 +510,14 @@ rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 		 * printing a complete JSON object. */
 		close(fds[1]);
 
-		plugin = rpc_plugin_parse_exec(name + 1, fds[0]);
+		plugin = rpc_plugin_parse_exec(name + 1, fds[0], deadline,
+		                               &timed_out);
+
+		if (timed_out)
+		{
+			ULOG_WARN("Timeout waiting for the method list of %s\n", path);
+			kill(pid, SIGKILL);
+		}
 
 		if (!plugin)
 			goto out;
