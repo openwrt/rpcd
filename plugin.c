@@ -433,6 +433,8 @@ rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 	switch ((pid = fork()))
 	{
 	case -1:
+		close(fds[0]);
+		close(fds[1]);
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
 	case 0:
@@ -456,6 +458,11 @@ rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 			_exit(127);
 
 	default:
+		/* The write end must only be open in the child, otherwise
+		 * read() never returns EOF when the plugin exits without
+		 * printing a complete JSON object. */
+		close(fds[1]);
+
 		plugin = rpc_plugin_parse_exec(name + 1, fds[0]);
 
 		if (!plugin)
@@ -465,7 +472,6 @@ rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 
 out:
 		close(fds[0]);
-		close(fds[1]);
 		waitpid(pid, NULL, 0);
 
 		return rv;
