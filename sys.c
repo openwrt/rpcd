@@ -405,6 +405,7 @@ rpc_sys_upgrade_start(struct ubus_context *ctx, struct ubus_object *obj,
                         struct ubus_request_data *req, const char *method,
                         struct blob_attr *msg)
 {
+	pid_t pid = -1;
 	struct blob_attr *tb[__RPC_UPGRADE_MAX];
 	char * const cmd[4] = { "/sbin/sysupgrade", "-n", "/tmp/firmware.bin", NULL };
 	char * const cmd_keep[3] = { "/sbin/sysupgrade", "/tmp/firmware.bin", NULL };
@@ -416,7 +417,11 @@ rpc_sys_upgrade_start(struct ubus_context *ctx, struct ubus_object *obj,
 	if (tb[RPC_UPGRADE_KEEP] && blobmsg_get_bool(tb[RPC_UPGRADE_KEEP]))
 		c = cmd_keep;
 
-	if (!fork()) {
+	pid = fork();
+	if (pid < 0)
+		return rpc_errno_status();
+
+	if (!pid) {
 		/* wait for the RPC call to complete */
 		sleep(2);
 		return execv(c[0], c);
@@ -441,9 +446,14 @@ rpc_sys_factory(struct ubus_context *ctx, struct ubus_object *obj,
                  struct ubus_request_data *req, const char *method,
                  struct blob_attr *msg)
 {
+	pid_t pid = -1;
 	char * const cmd[4] = { "/sbin/jffs2reset", "-y", "-r", NULL };
 
-	if (!fork()) {
+	pid = fork();
+	if (pid < 0)
+		return rpc_errno_status();
+
+	if (!pid) {
 		/* wait for the RPC call to complete */
 		sleep(2);
 		return execv(cmd[0], cmd);
@@ -457,7 +467,13 @@ rpc_sys_reboot(struct ubus_context *ctx, struct ubus_object *obj,
                  struct ubus_request_data *req, const char *method,
                  struct blob_attr *msg)
 {
-	if (!fork()) {
+	pid_t pid = -1;
+
+	pid = fork();
+	if (pid < 0)
+		return rpc_errno_status();
+
+	if (!pid) {
 		sync();
 		sleep(2);
 		reboot(RB_AUTOBOOT);

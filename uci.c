@@ -1745,9 +1745,14 @@ rpc_uci_reload(struct ubus_context *ctx, struct ubus_object *obj,
                  struct ubus_request_data *req, const char *method,
                  struct blob_attr *msg)
 {
+	pid_t pid = -1;
 	char * const cmd[2] = { "/sbin/reload_config", NULL };
 
-	if (!fork()) {
+	pid = fork();
+	if (pid < 0)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	if (!pid) {
 		/* wait for the RPC call to complete */
 		sleep(2);
 		return execv(cmd[0], cmd);
