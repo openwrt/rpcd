@@ -433,6 +433,8 @@ rpc_plugin_register_exec(struct ubus_context *ctx, const char *path)
 	switch ((pid = fork()))
 	{
 	case -1:
+		close(fds[0]);
+		close(fds[1]);
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
 	case 0:
