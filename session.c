@@ -22,11 +22,13 @@
 #include <libubox/avl-cmp.h>
 #include <libubox/blobmsg.h>
 #include <libubox/utils.h>
+#include <libubox/ulog.h>
 #include <libubus.h>
 #include <fnmatch.h>
 #include <glob.h>
 #include <uci.h>
 #include <limits.h>
+#include <time.h>
 
 #ifdef HAVE_SHADOW
 #include <shadow.h>
@@ -37,8 +39,94 @@
 static struct avl_tree sessions;
 static struct blob_buf buf;
 
+#define RPC_LOGIN_RATE_LIMIT_DEFAULT	1
+
+static struct timespec last_login_attempt = { 0, 0 };
+
 static LIST_HEAD(create_callbacks);
 static LIST_HEAD(destroy_callbacks);
+
+/*
+ * Read the configured rate limit (in seconds) from uci.
+ * 0 disables the limit entirely.
+ */
+static int
+rpc_login_rate_limit_seconds(struct uci_context *uci)
+{
+	struct uci_ptr ptr = { .package = "rpcd" };
+	const char *val;
+
+	if (uci_lookup_ptr(uci, &ptr, "login_rate_limit_seconds", true))
+		return RPC_LOGIN_RATE_LIMIT_DEFAULT;
+
+	if (ptr.o && ptr.o->type == UCI_TYPE_STRING) {
+		val = ptr.o->v.string;
+		if (val && *val)
+			return atoi(val);
+	}
+
+	return RPC_LOGIN_RATE_LIMIT_DEFAULT;
+}
+
+/*
+ * Percent-encode a user-supplied string before logging it, so control
+ * characters and newlines cannot break the expected log format.
+ */
+static void
+rpc_login_log_username(const char *username)
+{
+	char buf[256];
+	size_t i, j = 0;
+
+	for (i = 0; username[i] && j + 4 < sizeof(buf); i++) {
+		unsigned char c = username[i];
+
+		if (c < 0x20 || c == 0x7f || c == '%' || c == '\'') {
+			j += snprintf(buf + j, sizeof(buf) - j, "%%%02X", c);
+		} else {
+			buf[j++] = c;
+		}
+	}
+	buf[j] = '\0';
+
+	ULOG_WARN("Bad password attempt for '%s'\n", buf);
+}
+
+/*
+ * Returns true if the login attempt is allowed, false if it should be
+ * rejected due to the global rate limit. A configured limit of 0
+ * disables the check.
+ *
+ * Uses CLOCK_MONOTONIC so a wall-clock jump (NTP correction, RTC
+ * change) cannot accidentally disable or extend the limit.
+ */
+static bool
+rpc_login_rate_limit_check(struct uci_context *uci)
+{
+	int limit = rpc_login_rate_limit_seconds(uci);
+	struct timespec now;
+
+	if (limit <= 0)
+		return true;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
+	if (last_login_attempt.tv_sec != 0 &&
+	    now.tv_sec - last_login_attempt.tv_sec < limit) {
+		ULOG_WARN("session.login rate limited (window=%ds)\n", limit);
+		return false;
+	}
+
+	last_login_attempt = now;
+	return true;
+}
+
+static void
+rpc_login_rate_limit_reset(void)
+{
+	last_login_attempt.tv_sec = 0;
+	last_login_attempt.tv_nsec = 0;
+}
 
 enum {
 	RPC_SN_TIMEOUT,
@@ -1183,13 +1271,21 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 		goto out;
 	}
 
+	if (!rpc_login_rate_limit_check(uci)) {
+		rv = UBUS_STATUS_TIMEOUT;
+		goto out;
+	}
+
 	login = rpc_login_test_login(uci, blobmsg_get_string(tb[RPC_L_USERNAME]),
 	                                  blobmsg_get_string(tb[RPC_L_PASSWORD]));
 
 	if (!login) {
+		rpc_login_log_username(blobmsg_get_string(tb[RPC_L_USERNAME]));
 		rv = UBUS_STATUS_PERMISSION_DENIED;
 		goto out;
 	}
+
+	rpc_login_rate_limit_reset();
 
 	if (tb[RPC_L_TIMEOUT])
 		timeout = blobmsg_get_u32(tb[RPC_L_TIMEOUT]);
