@@ -32,6 +32,7 @@
 #include <rpcd/uci.h>
 
 static struct ubus_context *ctx;
+static const char *ubus_socket = NULL;
 static bool respawn = false;
 
 int rpc_exec_timeout = RPC_EXEC_DEFAULT_TIMEOUT;
@@ -42,6 +43,33 @@ handle_signal(int sig)
 	rpc_session_freeze();
 	uloop_cancelled = true;
 	respawn = (sig == SIGHUP);
+}
+
+static void
+rpc_ubus_reconnect(struct uloop_timeout *t)
+{
+	if (ubus_reconnect(ctx, ubus_socket)) {
+		uloop_timeout_set(t, 1000);
+		return;
+	}
+
+	ubus_add_uloop(ctx);
+}
+
+static struct uloop_timeout reconnect_timer = {
+	.cb = rpc_ubus_reconnect,
+};
+
+/*
+ * ubusd went away (it was restarted): connect again, once a second until it
+ * is back.  ubus_reconnect() registers every object again.  libubus' default
+ * handler does nothing once uloop has dropped the hung-up socket, so rpcd
+ * would otherwise run on with no objects, and LuCI with no session or uci.
+ */
+static void
+rpc_ubus_connection_lost(struct ubus_context *c)
+{
+	uloop_timeout_set(&reconnect_timer, 1000);
 }
 
 static void
@@ -70,7 +98,6 @@ int main(int argc, char **argv)
 {
 	struct stat s;
 	const char *hangup;
-	const char *ubus_socket = NULL;
 	int ch;
 
 	while ((ch = getopt(argc, argv, "s:t:")) != -1) {
@@ -112,6 +139,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	ctx->connection_lost = rpc_ubus_connection_lost;
 	ubus_add_uloop(ctx);
 
 	rpc_session_api_init(ctx);
