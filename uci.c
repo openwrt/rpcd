@@ -729,7 +729,17 @@ rpc_uci_add(struct ubus_context *ctx, struct ubus_object *obj,
 		ptr.value   = blobmsg_data(tb[RPC_A_TYPE]);
 		ptr.option  = NULL;
 
-		if (rpc_uci_lookup(&ptr) || uci_set(cursor, &ptr))
+		if (rpc_uci_lookup(&ptr))
+			goto out;
+
+		/* uci_set() would change the type of an existing section */
+		if (ptr.s && strcmp(ptr.s->type, ptr.value))
+		{
+			err = UBUS_STATUS_INVALID_ARGUMENT;
+			goto out;
+		}
+
+		if (uci_set(cursor, &ptr))
 			goto out;
 	}
 
