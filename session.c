@@ -33,6 +33,7 @@
 #endif
 
 #include <rpcd/session.h>
+#include <rpcd/exec.h>
 
 static struct avl_tree sessions;
 static struct blob_buf buf;
@@ -126,6 +127,28 @@ static const struct blobmsg_policy login_policy[__RPC_L_MAX] = {
 	[RPC_L_USERNAME] = { .name = "username", .type = BLOBMSG_TYPE_STRING },
 	[RPC_L_PASSWORD] = { .name = "password", .type = BLOBMSG_TYPE_STRING },
 	[RPC_L_TIMEOUT]  = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
+};
+
+enum {
+	RPC_C_SID,
+	RPC_C_OBJECT,
+	RPC_C_METHOD,
+	RPC_C_DATA,
+	__RPC_C_MAX,
+};
+static const struct blobmsg_policy call_policy[__RPC_C_MAX] = {
+	[RPC_C_SID]    = { .name = "ubus_rpc_session", .type = BLOBMSG_TYPE_STRING },
+	[RPC_C_OBJECT] = { .name = "object", .type = BLOBMSG_TYPE_STRING },
+	[RPC_C_METHOD] = { .name = "method", .type = BLOBMSG_TYPE_STRING },
+	[RPC_C_DATA]   = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
+};
+
+struct rpc_session_call {
+	struct ubus_context *ctx;
+	struct ubus_request_data caller;
+	struct ubus_request req;
+	struct uloop_timeout timeout;
+	struct blob_buf reply;
 };
 
 /*
@@ -1362,8 +1385,139 @@ rpc_session_from_blob(struct uci_context *uci, struct blob_attr *attr,
 	return true;
 }
 
+static void
+rpc_session_call_free(struct rpc_session_call *c)
+{
+	uloop_timeout_cancel(&c->timeout);
+	blob_buf_free(&c->reply);
+	free(c);
+}
+
+static void
+rpc_session_call_data_cb(struct ubus_request *req, int type,
+                         struct blob_attr *msg)
+{
+	struct rpc_session_call *c = container_of(req, struct rpc_session_call, req);
+	struct blob_attr *cur;
+	size_t rem;
+
+	blob_for_each_attr(cur, msg, rem)
+		blobmsg_add_blob(&c->reply, cur);
+}
+
+static void
+rpc_session_call_fd_cb(struct ubus_request *req, int fd)
+{
+	close(fd);
+}
+
+static void
+rpc_session_call_complete_cb(struct ubus_request *req, int ret)
+{
+	struct rpc_session_call *c = container_of(req, struct rpc_session_call, req);
+	struct blob_attr *cur;
+	size_t rem;
+	void *data;
+
+	blob_buf_init(&buf, 0);
+	blobmsg_add_u32(&buf, "status", ret);
+
+	data = blobmsg_open_table(&buf, "data");
+	blob_for_each_attr(cur, c->reply.head, rem)
+		blobmsg_add_blob(&buf, cur);
+	blobmsg_close_table(&buf, data);
+
+	ubus_send_reply(c->ctx, &c->caller, buf.head);
+	ubus_complete_deferred_request(c->ctx, &c->caller, UBUS_STATUS_OK);
+	rpc_session_call_free(c);
+}
+
+static void
+rpc_session_call_timeout_cb(struct uloop_timeout *t)
+{
+	struct rpc_session_call *c = container_of(t, struct rpc_session_call, timeout);
+
+	ubus_abort_request(c->ctx, &c->req);
+	ubus_complete_deferred_request(c->ctx, &c->caller, UBUS_STATUS_TIMEOUT);
+	rpc_session_call_free(c);
+}
+
+/* Invoke a method of another object on behalf of a session, for a caller that
+ * ubusd lets reach no more than rpcd: the session ACL decides, as it does for
+ * rpcd's own objects in rpc_session_pre_invoke(). The callee sees rpcd as the
+ * caller and the session id in its arguments. The reply carries the callee's
+ * status and data, so that a status of the call itself (object not found,
+ * access denied, timeout) is not mistaken for one of the callee. */
+static int
+rpc_handle_call(struct ubus_context *ctx, struct ubus_object *obj,
+                struct ubus_request_data *req, const char *method,
+                struct blob_attr *msg)
+{
+	const char *sid = RPC_DEFAULT_SESSION_ID;
+	struct blob_attr *tb[__RPC_C_MAX];
+	struct rpc_session_call *c;
+	struct blob_attr *cur;
+	uint32_t id;
+	size_t rem;
+
+	blobmsg_parse(call_policy, __RPC_C_MAX, tb, blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_C_OBJECT] || !tb[RPC_C_METHOD])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if (tb[RPC_C_SID])
+		sid = blobmsg_get_string(tb[RPC_C_SID]);
+
+	if (!rpc_session_access(sid, "ubus", blobmsg_get_string(tb[RPC_C_OBJECT]),
+	                        blobmsg_get_string(tb[RPC_C_METHOD])))
+		return UBUS_STATUS_PERMISSION_DENIED;
+
+	if (ubus_lookup_id(ctx, blobmsg_get_string(tb[RPC_C_OBJECT]), &id))
+		return UBUS_STATUS_NOT_FOUND;
+
+	blob_buf_init(&buf, 0);
+
+	if (tb[RPC_C_DATA]) {
+		blobmsg_for_each_attr(cur, tb[RPC_C_DATA], rem) {
+			if (!strcmp(blobmsg_name(cur), "ubus_rpc_session"))
+				return UBUS_STATUS_INVALID_ARGUMENT;
+
+			blobmsg_add_blob(&buf, cur);
+		}
+	}
+
+	if (tb[RPC_C_SID])
+		blobmsg_add_string(&buf, "ubus_rpc_session", sid);
+
+	c = calloc(1, sizeof(*c));
+	if (!c)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	c->ctx = ctx;
+	blob_buf_init(&c->reply, 0);
+
+	if (ubus_invoke_async(ctx, id, blobmsg_get_string(tb[RPC_C_METHOD]),
+	                      buf.head, &c->req)) {
+		rpc_session_call_free(c);
+		return UBUS_STATUS_UNKNOWN_ERROR;
+	}
+
+	c->req.data_cb = rpc_session_call_data_cb;
+	c->req.fd_cb = rpc_session_call_fd_cb;
+	c->req.complete_cb = rpc_session_call_complete_cb;
+	ubus_complete_request_async(ctx, &c->req);
+
+	c->timeout.cb = rpc_session_call_timeout_cb;
+	uloop_timeout_set(&c->timeout, rpc_exec_timeout);
+
+	ubus_defer_request(ctx, req, &c->caller);
+
+	return 0;
+}
+
 /* Methods that act only on the session id handed to them; open to non-root
- * callers so they can log in. libubus and ubusd do not read method tags. */
+ * callers so they can log in. libubus and ubusd do not read method tags.
+ * "call" checks the session ACL itself, against the method it relays to. */
 #define RPC_SESSION_TAG_OPEN	(1ul << 31)
 
 int rpc_session_api_init(struct ubus_context *ctx)
@@ -1386,6 +1540,8 @@ int rpc_session_api_init(struct ubus_context *ctx)
 		UBUS_METHOD_TAG("destroy", rpc_handle_destroy, sid_policy,
 		                RPC_SESSION_TAG_OPEN),
 		UBUS_METHOD_TAG("login",   rpc_handle_login,   login_policy,
+		                RPC_SESSION_TAG_OPEN),
+		UBUS_METHOD_TAG("call",    rpc_handle_call,    call_policy,
 		                RPC_SESSION_TAG_OPEN),
 	};
 
