@@ -128,6 +128,17 @@ static const struct blobmsg_policy login_policy[__RPC_L_MAX] = {
 	[RPC_L_TIMEOUT]  = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
 };
 
+enum {
+	RPC_SU_USERNAME,
+	RPC_SU_TIMEOUT,
+	__RPC_SU_MAX,
+};
+
+static const struct blobmsg_policy setup_policy[__RPC_SU_MAX] = {
+	[RPC_SU_USERNAME] = { .name = "username", .type = BLOBMSG_TYPE_STRING },
+	[RPC_SU_TIMEOUT]  = { .name = "timeout", .type = BLOBMSG_TYPE_INT32 },
+};
+
 /*
  * Keys in the AVL tree contain all pattern characters up to the first wildcard.
  * To look up entries, start with the last entry that has a key less than or
@@ -1221,6 +1232,71 @@ out:
 	return rv;
 }
 
+/*
+ * Set up a session for a user whose identity the caller has already
+ * established by other means (e.g. a passkey). This is the second half of
+ * rpc_handle_login(): the ACLs come from the user's login section exactly as
+ * they would for a password login, and from nowhere else.
+ *
+ * The method carries no RPC_SESSION_TAG_OPEN, so rpc_session_pre_invoke()
+ * checks non-root ubus callers against their session ACL, and the ubus HTTP
+ * bridge only forwards it to sessions that an acl.d file grants it to.
+ */
+static int
+rpc_handle_setup(struct ubus_context *ctx, struct ubus_object *obj,
+                 struct ubus_request_data *req, const char *method,
+                 struct blob_attr *msg)
+{
+	struct uci_context *uci = NULL;
+	struct uci_section *login;
+	struct rpc_session *ses;
+	struct blob_attr *tb[__RPC_SU_MAX];
+	int timeout = RPC_DEFAULT_SESSION_TIMEOUT;
+	int rv = 0;
+
+	blobmsg_parse(setup_policy, __RPC_SU_MAX, tb, blob_data(msg), blob_len(msg));
+
+	if (!tb[RPC_SU_USERNAME] || !*blobmsg_get_string(tb[RPC_SU_USERNAME])) {
+		rv = UBUS_STATUS_INVALID_ARGUMENT;
+		goto out;
+	}
+
+	uci = uci_alloc_context();
+
+	if (!uci) {
+		rv = UBUS_STATUS_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	/* a NULL password matches the login section by username alone */
+	login = rpc_login_test_login(uci, blobmsg_get_string(tb[RPC_SU_USERNAME]), NULL);
+
+	if (!login) {
+		rv = UBUS_STATUS_PERMISSION_DENIED;
+		goto out;
+	}
+
+	if (tb[RPC_SU_TIMEOUT])
+		timeout = blobmsg_get_u32(tb[RPC_SU_TIMEOUT]);
+
+	ses = rpc_session_create(timeout);
+
+	if (!ses) {
+		rv = UBUS_STATUS_UNKNOWN_ERROR;
+		goto out;
+	}
+
+	rpc_login_setup_acls(ses, login);
+
+	rpc_session_set(ses, tb[RPC_SU_USERNAME]);
+	rpc_session_dump(ses, ctx, req);
+
+out:
+	if (uci)
+		uci_free_context(uci);
+
+	return rv;
+}
 
 static bool
 rpc_validate_sid(const char *id)
@@ -1387,6 +1463,7 @@ int rpc_session_api_init(struct ubus_context *ctx)
 		                RPC_SESSION_TAG_OPEN),
 		UBUS_METHOD_TAG("login",   rpc_handle_login,   login_policy,
 		                RPC_SESSION_TAG_OPEN),
+		UBUS_METHOD("setup",       rpc_handle_setup,   setup_policy),
 	};
 
 	static struct ubus_object_type session_type =
