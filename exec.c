@@ -16,6 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE /* pipe2() */
+
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
@@ -193,6 +195,17 @@ rpc_exec_process_cb(struct uloop_process *p, int stat)
 	ustream_poll(&c->opipe.stream);
 	ustream_poll(&c->epipe.stream);
 
+	/* Unregister the descriptors from uloop while they are still valid.  The
+	 * -1 assignment below makes the uloop_fd_delete() that ustream_free()
+	 * performs later, in rpc_exec_reply(), issue epoll_ctl(EPOLL_CTL_DEL, -1).
+	 * That fails with EBADF, nothing checks the return value, and the epoll
+	 * registration stays behind pointing at a context rpc_exec_reply() is
+	 * about to free.  It outlives the close() below whenever another process
+	 * still holds a copy of the pipe, and its EPOLLHUP then reaches
+	 * uloop_fetch_events() as freed memory. */
+	uloop_fd_delete(&c->opipe.fd);
+	uloop_fd_delete(&c->epipe.fd);
+
 	close(c->opipe.fd.fd);
 	close(c->epipe.fd.fd);
 
@@ -324,13 +337,16 @@ rpc_exec(const char **args, rpc_exec_write_cb_t in,
 	if (!c)
 		return UBUS_STATUS_UNKNOWN_ERROR;
 
-	if (pipe(ipipe))
+	/* O_CLOEXEC: a concurrently forked child must not inherit the pipes of its
+	 * siblings -- see rpc_exec_process_cb().  dup2() onto 0/1/2 does not carry
+	 * the flag over, so the child keeps its own three pipes. */
+	if (pipe2(ipipe, O_CLOEXEC))
 		goto fail_ipipe;
 
-	if (pipe(opipe))
+	if (pipe2(opipe, O_CLOEXEC))
 		goto fail_opipe;
 
-	if (pipe(epipe))
+	if (pipe2(epipe, O_CLOEXEC))
 		goto fail_epipe;
 
 	switch ((pid = fork()))
