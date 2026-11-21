@@ -21,6 +21,7 @@
 #include <stdlib.h>
 
 #include <libubox/blobmsg_json.h>
+#include <libubox/ulog.h>
 #include <libubus.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -104,6 +105,8 @@ int main(int argc, char **argv)
 	signal(SIGHUP,  handle_signal);
 	signal(SIGUSR1, handle_signal);
 
+	ulog_open(ULOG_SYSLOG | ULOG_STDIO, LOG_DAEMON, "rpcd");
+
 	uloop_init();
 
 	ctx = ubus_connect(ubus_socket);
@@ -131,6 +134,7 @@ int main(int argc, char **argv)
 	uloop_run();
 	ubus_free(ctx);
 	uloop_done();
+	ulog_close();
 
 	if (respawn)
 		exec_self(argc, argv);

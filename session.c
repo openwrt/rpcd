@@ -21,12 +21,15 @@
 
 #include <libubox/avl-cmp.h>
 #include <libubox/blobmsg.h>
+#include <libubox/ulog.h>
+#include <libubox/uloop.h>
 #include <libubox/utils.h>
 #include <libubus.h>
 #include <fnmatch.h>
 #include <glob.h>
 #include <uci.h>
 #include <limits.h>
+#include <time.h>
 
 #ifdef HAVE_SHADOW
 #include <shadow.h>
@@ -36,6 +39,24 @@
 
 static struct avl_tree sessions;
 static struct blob_buf buf;
+
+#define RPC_LOGIN_FAIL_THRESHOLD	3
+#define RPC_LOGIN_INITIAL_BACKOFF	2
+#define RPC_LOGIN_MAX_BACKOFF		60
+#define RPC_LOGIN_FAIL_EXPIRE		300
+#define RPC_LOGIN_MAX_TRACKED		64
+
+struct rpc_login_failure {
+	struct avl_node avl;
+	char *username;
+	int count;
+	int64_t last_failure;
+	int64_t lock_until;
+	struct uloop_timeout timeout;
+};
+
+static struct avl_tree login_failures;
+static int login_failures_count;
 
 static LIST_HEAD(create_callbacks);
 static LIST_HEAD(destroy_callbacks);
@@ -1159,6 +1180,58 @@ rpc_reclaim_apply_session(const char *expected_username)
 	return ses;
 }
 
+static int64_t
+rpc_monotonic_time(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+
+	return (int64_t)ts.tv_sec;
+}
+
+static void
+rpc_login_failure_timeout(struct uloop_timeout *t)
+{
+	struct rpc_login_failure *fail =
+		container_of(t, struct rpc_login_failure, timeout);
+
+	avl_delete(&login_failures, &fail->avl);
+	login_failures_count--;
+	free(fail->username);
+	free(fail);
+}
+
+static void
+rpc_login_failure_prune(void)
+{
+	struct rpc_login_failure *fail, *oldest = NULL;
+
+	if (avl_is_empty(&login_failures))
+		return;
+
+	avl_for_each_element(&login_failures, fail, avl) {
+		if (!oldest || fail->last_failure < oldest->last_failure)
+			oldest = fail;
+	}
+
+	if (oldest) {
+		uloop_timeout_cancel(&oldest->timeout);
+		avl_delete(&login_failures, &oldest->avl);
+		login_failures_count--;
+		free(oldest->username);
+		free(oldest);
+	}
+}
+
+static struct rpc_login_failure *
+rpc_login_failure_get(const char *username)
+{
+	struct rpc_login_failure *fail;
+
+	return avl_find_element(&login_failures, username, fail, avl);
+}
+
 static int
 rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
                  struct ubus_request_data *req, const char *method,
@@ -1168,6 +1241,10 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 	struct uci_section *login;
 	struct rpc_session *ses;
 	struct blob_attr *tb[__RPC_L_MAX];
+	struct rpc_login_failure *fail;
+	const char *username;
+	const char *password;
+	int64_t now;
 	int timeout = RPC_DEFAULT_SESSION_TIMEOUT;
 	int rv = 0;
 
@@ -1178,6 +1255,24 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 		goto out;
 	}
 
+	username = blobmsg_get_string(tb[RPC_L_USERNAME]);
+	password = blobmsg_get_string(tb[RPC_L_PASSWORD]);
+
+	if (!*username || strlen(username) > 128) {
+		rv = UBUS_STATUS_INVALID_ARGUMENT;
+		goto out;
+	}
+
+	now = rpc_monotonic_time();
+	fail = rpc_login_failure_get(username);
+
+	if (fail && fail->lock_until > now) {
+		ULOG_WARN("Login attempt for user '%s' rejected: throttled (%llds remaining)\n",
+		          username, (long long)(fail->lock_until - now));
+		rv = UBUS_STATUS_PERMISSION_DENIED;
+		goto out;
+	}
+
 	uci = uci_alloc_context();
 
 	if (!uci) {
@@ -1185,13 +1280,71 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 		goto out;
 	}
 
-	login = rpc_login_test_login(uci, blobmsg_get_string(tb[RPC_L_USERNAME]),
-	                                  blobmsg_get_string(tb[RPC_L_PASSWORD]));
+	login = rpc_login_test_login(uci, username, password);
 
 	if (!login) {
+		if (!fail) {
+			if (login_failures_count >= RPC_LOGIN_MAX_TRACKED)
+				rpc_login_failure_prune();
+
+			fail = calloc(1, sizeof(*fail));
+			if (fail) {
+				fail->username = strdup(username);
+				if (!fail->username) {
+					free(fail);
+					fail = NULL;
+				} else {
+					fail->avl.key = fail->username;
+					fail->timeout.cb = rpc_login_failure_timeout;
+					avl_insert(&login_failures, &fail->avl);
+					login_failures_count++;
+				}
+			}
+		}
+
+		if (fail) {
+			int shift;
+			int delay;
+
+			fail->count++;
+			fail->last_failure = now;
+			uloop_timeout_set(&fail->timeout, RPC_LOGIN_FAIL_EXPIRE * 1000);
+
+			if (fail->count >= RPC_LOGIN_FAIL_THRESHOLD) {
+				shift = fail->count - RPC_LOGIN_FAIL_THRESHOLD;
+				if (shift > 5)
+					shift = 5;
+
+				delay = RPC_LOGIN_INITIAL_BACKOFF << shift;
+				if (delay > RPC_LOGIN_MAX_BACKOFF)
+					delay = RPC_LOGIN_MAX_BACKOFF;
+
+				fail->lock_until = now + delay;
+				ULOG_WARN("Failed login attempt %d for user '%s': throttled for %ds\n",
+				          fail->count, username, delay);
+			} else {
+				fail->lock_until = 0;
+				ULOG_WARN("Failed login attempt %d for user '%s'\n",
+				          fail->count, username);
+			}
+		} else {
+			ULOG_WARN("Failed login attempt for user '%s'\n", username);
+		}
+
 		rv = UBUS_STATUS_PERMISSION_DENIED;
 		goto out;
 	}
+
+	/* Clear failure record on successful login */
+	if (fail) {
+		uloop_timeout_cancel(&fail->timeout);
+		avl_delete(&login_failures, &fail->avl);
+		login_failures_count--;
+		free(fail->username);
+		free(fail);
+	}
+
+	ULOG_INFO("Successful login for user '%s'\n", username);
 
 	if (tb[RPC_L_TIMEOUT])
 		timeout = blobmsg_get_u32(tb[RPC_L_TIMEOUT]);
@@ -1201,7 +1354,7 @@ rpc_handle_login(struct ubus_context *ctx, struct ubus_object *obj,
 	 * if the username matches, otherwise perform a new login
 	 */
 
-	ses = rpc_reclaim_apply_session(blobmsg_get_string(tb[RPC_L_USERNAME]));
+	ses = rpc_reclaim_apply_session(username);
 
 	if (!ses)
 		ses = rpc_session_create(timeout);
@@ -1402,6 +1555,8 @@ int rpc_session_api_init(struct ubus_context *ctx)
 	};
 
 	avl_init(&sessions, avl_strcmp, false, NULL);
+	avl_init(&login_failures, avl_strcmp, false, NULL);
+	login_failures_count = 0;
 
 	/* setup the default session */
 	ses = rpc_session_new();
