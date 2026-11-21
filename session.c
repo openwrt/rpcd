@@ -357,8 +357,10 @@ rpc_session_create(int timeout)
 	if (!ses)
 		return NULL;
 
-	if (rpc_random(ses->id))
+	if (rpc_random(ses->id)) {
+		free(ses);
 		return NULL;
+	}
 
 	ses->timeout = timeout;
 
